@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
@@ -141,73 +142,55 @@ function buildRoseTargets(n) {
     return shuffleArr(pts);
 }
 
-// Mode 1 – ASCII art + text rendered via offscreen canvas
+// Mode 1 – Large pixel-dot text like reference image (HAPPY NEW YEAR style)
 function buildLiminalTargets(n) {
     let pts = [];
 
-    // --- ASCII art lines (the rose ASCII from the request) ---
-    const ascii = [
-        "⊹  ⣤⣶⠿⢖⣢⣴⣶⣦⣤⣄",
-        " ⢸⡟⢁⣼⠟⣩⢤⣤⠤⣉⠻⣇  ˖",
-        "⢀⣾⣿⡈⡇⢸⡏⣼⣇⡑⢀⠇⣸⢆⢿⢸⣿⣦",
-        "⣸⣿⣿⡇⠁⣀⡘⠿⠿⠿⢣⡾⢏⣼⠈⣼⣿⣿",
-        "⣿⣿⣿⣄⠾⣿⣿⣿⣶⣶⣤⣶⣿⡟⠀⣿⣿⠏",
-        "⠈⠙⠿⣿⣦⡈⢿⣿⣿⣿⣿⡿⠋⣠⣾⣿⣷",
-        "  ⠻⣿⣿⣿⠟⠉",
-        "⁺⊹   ⠻⣿⣿⣿⠟⠉  ⊹"
-    ];
-
-    // Render ASCII to offscreen canvas
     const og = document.createElement('canvas');
     og.width = width; og.height = height;
     const octx = og.getContext('2d');
     octx.fillStyle = '#000';
     octx.fillRect(0, 0, width, height);
-
-    // --- ASCII block ---
-    const fontSize = Math.min(width / 20, 22);
-    octx.font = `${fontSize}px "Courier New", monospace`;
     octx.fillStyle = '#fff';
-    const lineH = fontSize * 1.3;
-    const totalH = ascii.length * lineH;
-    const startY = height / 2 - totalH / 2 - 40;
-    ascii.forEach((line, i) => {
-        const tw = octx.measureText(line).width;
-        octx.fillText(line, width/2 - tw/2, startY + i * lineH);
-    });
 
-    // --- "The Liminal Veil" text line ---
-    const bigSize = Math.min(width / 14, 32);
-    octx.font = `bold ${bigSize}px "Courier New", monospace`;
-    octx.fillStyle = '#fff';
-    const mainText = "The Liminal Veil";
-    const tw2 = octx.measureText(mainText).width;
-    octx.fillText(mainText, width/2 - tw2/2, startY + ascii.length * lineH + 30);
+    // Line 1: "失序邊境" — large, fills width
+    const line1 = "失序邊境";
+    const size1 = Math.floor(width / 4.2);
+    octx.font = `bold ${size1}px "Courier New", monospace`;
+    const w1 = octx.measureText(line1).width;
+    octx.fillText(line1, (width - w1) / 2, height * 0.28);
 
-    // --- Sub text ---
-    const subSize = Math.min(width / 22, 18);
-    octx.font = `${subSize}px "Courier New", monospace`;
-    const subText = "失序邊境 .𖥔 ˖ .⋆";
-    const tw3 = octx.measureText(subText).width;
-    octx.fillText(subText, width/2 - tw3/2, startY + ascii.length * lineH + 60);
+    // Line 2: "The Liminal Veil" — medium
+    const line2 = "The Liminal Veil";
+    const size2 = Math.floor(width / 8);
+    octx.font = `bold ${size2}px "Courier New", monospace`;
+    const w2 = octx.measureText(line2).width;
+    octx.fillText(line2, (width - w2) / 2, height * 0.52);
 
-    // Sample bright pixels
+    // Line 3: ".𖥔 ˖ .⋆" — small decorative
+    const line3 = ".* \u2606 .+ \u2022 .*";
+    const size3 = Math.floor(width / 14);
+    octx.font = `${size3}px "Courier New", monospace`;
+    const w3 = octx.measureText(line3).width;
+    octx.fillText(line3, (width - w3) / 2, height * 0.66);
+
+    // Sample pixels at tight grid for dense dots
     const imgData = octx.getImageData(0, 0, width, height);
     const pix = imgData.data;
-    const step = 4;
+    const step = 5; // tighter = more particles
     for (let x = 0; x < width; x += step) {
         for (let y = 0; y < height; y += step) {
             const idx = (x + y * width) * 4;
-            if (pix[idx] > 100) {
+            if (pix[idx] > 128) {
                 pts.push({ x, y });
             }
         }
     }
 
-    // Ensure exactly n targets by repeating or trimming
+    // Shuffle then ensure exactly n points
     pts = shuffleArr(pts);
     while (pts.length < n) {
-        pts = pts.concat(pts.slice(0, n - pts.length));
+        pts = pts.concat(shuffleArr(pts.slice()).slice(0, n - pts.length));
     }
     return pts.slice(0, n);
 }
@@ -396,5 +379,6 @@ function windowResized() {
     }
 }
 </script>
+
 </body>
 </html>
