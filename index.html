@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>玫瑰與失序邊境</title>
+    <title>玫瑰與失序邊境 - 結構化匯聚</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <style>
@@ -28,29 +28,81 @@
         let mode = 0; // 0: 玫瑰, 1: 失序邊境
         let video;
         let particles = [];
+        let numParticles = 800; // 大量粒子以形成結構
         let handX = 0, handY = 0;
         let isFist = false;
         let isHandVisible = false;
 
-        // 模式文字
-        const textRose = "⊹ 玫瑰紋樣 ⊹\n⣤⣶⠿⢖⣢⣴⣶⣦...";
-        const textLiminal = "失序邊境 .𖥔 ݁˖\n𝕋𝕙𝕖 𝕃𝕚𝕞𝕚𝕟𝕒𝕝 𝕍𝕖𝕚𝕝.⋆";
+        // 匯聚目標點
+        let rosePoints = [];
+        let liminalPoints = [];
 
         function toggleMode() {
             mode = (mode + 1) % 2;
-            document.getElementById('mode-text').innerText = (mode === 0) ? textRose : textLiminal;
+            particles = [];
+            document.getElementById('mode-text').innerText = (mode === 0) ? "⊹ 玫瑰紋樣 ⊹" : "失序邊境 .𖥔 ݁˖";
+            generateParticles();
         }
 
         function setup() {
             createCanvas(windowWidth, windowHeight);
             
-            // 使用 p5.js 內建方法開啟攝影機 (這在手機上最穩定)
+            // 使用 p5.js 內建方法開啟攝影機 (與代碼4相同，保持穩定)
             video = createCapture(VIDEO, function() {
-                document.getElementById('mode-text').innerText = (mode === 0) ? textRose : textLiminal;
-                initMediaPipe(); // 攝影機準備好後，才啟動手勢辨識
+                initMediaPipe(); 
+                document.getElementById('mode-text').innerText = (mode === 0) ? "⊹ 玫瑰紋樣 ⊹" : "失序邊境 .𖥔 ݁˖";
+                generateTargetPoints(); // 預計算文字和圖案點
+                generateParticles(); // 產生粒子
             });
             video.size(320, 240);
-            video.hide(); // 隱藏原生影片元素，我們要在畫布上自己畫
+            video.hide(); 
+        }
+
+        // 預計算匯聚目標點
+        function generateTargetPoints() {
+            rosePoints = [];
+            liminalPoints = [];
+
+            // 1. 生成風格化玫瑰點 (心形花朵圖案)
+            for(let i=0; i<numParticles; i++) {
+                // 心形公式
+                let angle = map(i, 0, numParticles, 0, TWO_PI);
+                let x = 16 * pow(sin(angle), 3);
+                let y = 13 * cos(angle) - 5 * cos(2 * angle) - 2 * cos(3 * angle) - cos(4 * angle);
+                // 縮放並居中
+                rosePoints.push({
+                    x: width/2 + x * 10,
+                    y: height/2 - y * 10
+                });
+            }
+
+            // 2. 生成文字 "The Liminal Veil" 點 (類似圖1)
+            let pg = createGraphics(width, height);
+            pg.fill(255); pg.noStroke();
+            pg.textAlign(CENTER, CENTER);
+            pg.textFont('monospace'); // 使用通用字體
+            pg.textSize(40);
+            pg.text("The Liminal Veil", width/2, height/2);
+            // pg.textSize(20); pg.text(".𖥔 ݁˖ .⋆", width/2, height/2 + 30);
+            
+            pg.loadPixels();
+            for(let x=0; x<pg.width; x += 3) { // 步長小，增加點數
+                for(let y=0; y<pg.height; y += 3) {
+                    let index = (x + y * pg.width) * 4;
+                    if(pg.pixels[index] > 128) {
+                        liminalPoints.push({x: x, y: y});
+                    }
+                }
+            }
+        }
+
+        // 產生初始粒子
+        function generateParticles() {
+            particles = [];
+            for(let i=0; i<numParticles; i++) {
+                // 隨機初始位置
+                particles.push(new Particle(random(width), random(height)));
+            }
         }
 
         // 初始化 MediaPipe
@@ -68,6 +120,7 @@
                     let landmarks = results.multiHandLandmarks[0];
                     let wrist = landmarks[0];
                     let indexTip = landmarks[8];
+                    let pinkyTip = landmarks[20];
                     
                     // 計算手心座標 (並做水平鏡像翻轉)
                     handX = (1 - wrist.x) * width;
@@ -95,85 +148,150 @@
         function draw() {
             background(0);
 
-            // 1. 繪製攝影機背景 (水平鏡像)
+            // 1. 繪製攝影機背景 (與代碼4相同，保持穩定)
             if (video.loadedmetadata) {
                 push();
-                translate(width, 0);
-                scale(-1, 1);
+                translate(width, 0); scale(-1, 1);
                 image(video, 0, 0, width, height);
                 // 加上模式專屬濾鏡
-                if (mode === 0) fill(150, 20, 50, 100); // 玫瑰暗紅遮罩
-                else fill(0, 10, 20, 180); // 邊境深藍遮罩
+                if (mode === 0) fill(150, 20, 50, 100); 
+                else fill(0, 10, 20, 180); 
                 rect(0, 0, width, height);
                 pop();
             }
 
-            // 2. 隨時產生背景散亂粒子
-            if (frameCount % 3 === 0) {
-                particles.push(new Particle(random(width), random(height), mode, true));
+            // 2. 更新目標與手勢狀態
+            let targets = (mode === 0) ? rosePoints : liminalPoints;
+
+            // 3. 更新與繪製粒子 (結構化匯聚核心邏輯)
+            for (let i = 0; i < particles.length; i++) {
+                let p = particles[i];
+                let target = targets[i % targets.length]; // 循環分配目標點
+
+                p.update(isFist, target, handX, handY);
+                p.show();
             }
 
-            // 3. 處理手勢互動
-            if (isHandVisible && !isFist) {
-                // 張開手時，從手心噴發粒子
-                if (frameCount % 2 === 0) {
-                    for(let i=0; i<3; i++) particles.push(new Particle(handX, handY, mode, false));
-                }
-            }
-
-            // 4. 更新與繪製粒子
-            for (let i = particles.length - 1; i >= 0; i--) {
-                particles[i].update(isFist, handX, handY);
-                particles[i].show();
-                if (particles[i].finished()) {
-                    particles.splice(i, 1);
-                }
+            // 4. 繪製文字藝術標題 (圖1/2的效果)
+            noStroke();
+            textFont('monospace');
+            textAlign(CENTER, TOP);
+            fill(mode === 0 ? color(255, 150, 150) : color(0, 255, 200));
+            textStyle(BOLD);
+            textSize(22);
+            text("Hand Gesture Particle Symphony", width/2, 60);
+            textStyle(NORMAL);
+            fill(255);
+            textSize(18);
+            if(mode === 0) {
+                 text("玫瑰紋樣 ⊹", width/2, 90);
+                 fill(150, 150, 150);
+                 textStyle(ITALIC);
+                 text("Fist: Collapse to Flower / Open: Scatter", width/2, 120);
+            } else {
+                 text("失序邊境 .𖥔 ݁˖", width/2, 90);
+                 fill(150, 150, 150);
+                 textStyle(ITALIC);
+                 text("Fist: Collapse to Text / Open: Scatter", width/2, 120);
             }
         }
 
-        // 粒子類別
+        // 粒子類別 (專注於結構化 seek 與 flee)
         class Particle {
-            constructor(x, y, m, isBackground) {
-                this.x = x;
-                this.y = y;
-                this.mode = m;
-                this.alpha = random(150, 255);
-                this.size = m === 0 ? random(6, 15) : random(2, 6);
-                
-                // 背景粒子移動慢，手中噴發的粒子移動快
-                let speed = isBackground ? 1 : 6;
-                this.vx = random(-speed, speed);
-                this.vy = random(-speed, speed);
-                this.gravity = m === 0 ? random(0.02, 0.05) : 0;
+            constructor(x, y) {
+                this.currentPos = createVector(x, y); // 當前位置
+                this.targetPos = createVector(0, 0); // 匯聚目標
+                this.randomPos = createVector(random(width), random(height)); // 隨機漂浮目標
+                this.acc = createVector(0, 0);
+                this.vel = createVector(random(-3, 3), random(-3, 3)); // 初始速度
+                this.r = 2; // 粒子半徑
+                this.maxSpeed = 8;
+                this.maxForce = 0.5;
             }
 
-            finished() { return this.alpha <= 0 || this.size <= 0.5; }
+            finished() { return false; } // 粒子不需要淡出
 
-            update(fistActive, tx, ty) {
-                if (fistActive) {
-                    // 握拳坍塌效果
-                    this.x = lerp(this.x, tx, 0.15);
-                    this.y = lerp(this.y, ty, 0.15);
-                    this.size *= 0.95;
-                    this.alpha -= 8;
+            // 更新邏輯 (專注於 seek 與 flee)
+            update(fistActive, target, handX, handY) {
+                let currentTarget;
+                if(fistActive) {
+                    // 1. 握拳時：SEEK 匯聚目標點
+                    currentTarget = createVector(target.x, target.y);
+                    this.arrive(currentTarget);
+                    this.maxSpeed = 10;
+                    this.maxForce = 0.8;
                 } else {
-                    // 正常飄散
-                    this.vy += this.gravity;
-                    this.x += this.vx;
-                    this.y += this.vy;
-                    this.alpha -= (this.mode === 0 ? 3 : 5);
+                    // 2. 張手時：逃離手心 (flee) 並漂浮
+                    if(isHandVisible) {
+                         let handPos = createVector(handX, handY);
+                         let d = p5.Vector.dist(this.currentPos, handPos);
+                         if (d < 150) { // 只有當粒子接近手時才逃離
+                              this.flee(handPos);
+                         } else {
+                              this.seek(this.randomPos); // 其他時間 seek 隨機點
+                         }
+                    } else {
+                        // 沒有偵測到手時，粒子隨機漂浮
+                        this.seek(this.randomPos);
+                    }
+                    this.maxSpeed = 6;
+                    this.maxForce = 0.4;
+                }
+
+                this.vel.add(this.acc);
+                this.vel.limit(this.maxSpeed);
+                this.currentPos.add(this.vel);
+                this.acc.mult(0); // 清空加速度
+
+                // 偶爾隨機改變隨機目標
+                if(frameCount % 120 === 0) {
+                     this.randomPos = createVector(random(width), random(height));
                 }
             }
+
+            // 尋求目標点 (seek)
+            seek(target) {
+                let desired = p5.Vector.sub(target, this.currentPos);
+                desired.normalize(); desired.mult(this.maxSpeed);
+                let steer = p5.Vector.sub(desired, this.vel);
+                steer.limit(this.maxForce);
+                this.applyForce(steer);
+            }
+
+            // 到達目標点 (Arrive - 帶緩衝)
+            arrive(target) {
+                let desired = p5.Vector.sub(target, this.currentPos);
+                let d = desired.magnitude();
+                desired.normalize(); DESIRED_MULT = 1;
+                if (d < 50) DESIRED_MULT = map(d, 0, 50, 0, 1);
+                desired.mult(this.maxSpeed * DESIRED_MULT);
+                let steer = p5.Vector.sub(desired, this.vel);
+                steer.limit(this.maxForce);
+                this.applyForce(steer);
+            }
+
+            // 逃離目標点 (flee)
+            flee(target) {
+                let desired = p5.Vector.sub(this.currentPos, target);
+                desired.normalize(); desired.mult(this.maxSpeed);
+                let steer = p5.Vector.sub(desired, this.vel);
+                steer.limit(this.maxForce);
+                this.applyForce(steer);
+            }
+
+            applyForce(force) { this.acc.add(force); }
 
             show() {
+                // 為粒子添加圖1中的發光感
                 noStroke();
-                if (this.mode === 0) {
-                    fill(255, random(100, 180), random(120, 200), this.alpha); // 玫瑰粉紅色
-                    ellipse(this.x, this.y, this.size);
-                } else {
-                    fill(0, 255, 255, this.alpha); // 邊境青色
-                    rect(this.x, this.y, this.size, this.size);
-                }
+                // 1. 發光層
+                if(mode === 0) fill(255, 200, 200, 100); // 玫瑰模式發光
+                else fill(0, 255, 255, 100); // 邊境模式發光 (Cyan)
+                ellipse(this.currentPos.x, this.currentPos.y, this.r * 2.5);
+                // 2. 粒子核心
+                if(mode === 0) fill(255, 100, 100, 200); // 玫瑰模式核心
+                else fill(255, 255, 255, 200); // 邊境模式核心 (White)
+                ellipse(this.currentPos.x, this.currentPos.y, this.r);
             }
         }
 
