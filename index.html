@@ -3,21 +3,112 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>失序邊境.𖥔 ݁˖𝕋𝕙𝕖 𝕃𝕚𝕞𝕚𝕟𝕒𝕝 𝕍𝕖𝕚𝕝.⋆百人紀念- 手勢偵測</title>
+    <title>失序邊境.𖥔 ݁˖𝕋𝕙𝕖 𝕃𝕚𝕞𝕚𝕟𝕒𝕝 𝕍𝕖𝕚𝕝.⋆百人紀念創作-手勢偵測</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.js"></script>
-    <script src="https://unpkg.com/ml5@latest/dist/ml5.min.js"></script>
     <style>
-        body { margin: 0; padding: 0; overflow: hidden; background-color: #000; }
-        canvas { display: block; }
-        #status {
-            position: absolute; bottom: 10px; left: 10px;
-            color: white; font-family: monospace; background: rgba(0,0,0,0.5);
-            padding: 5px; border-radius: 4px; pointer-events: none;
-        }
+        body { margin: 0; background: #000; overflow: hidden; }
+        #canvas-container { position: relative; width: 100vw; height: 100vh; }
+        .controls { position: absolute; top: 20px; left: 20px; z-index: 10; display: flex; flex-direction: column; gap: 10px; }
+        button { padding: 12px 24px; border-radius: 25px; border: none; background: rgba(255,255,255,0.8); cursor: pointer; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div id="status">正在初始化模型...</div>
-    <script src="sketch.js"></script>
+    <div class="controls">
+        <button onclick="toggleMode()">切換模式 / Switch Mode</button>
+        <div id="mode-label" style="color: white; font-family: monospace; text-shadow: 1px 1px 2px #000;"></div>
+    </div>
+    <video id="input_video" style="display:none;"></video>
+    <div id="canvas-container"></div>
+
+    <script>
+        let mode = 0; // 0: 玫瑰, 1: 失序邊境
+        let particles = [];
+        let handData = null;
+        const videoElement = document.getElementById('input_video');
+        const modeLabel = document.getElementById('mode-label');
+
+        function toggleMode() {
+            mode = (mode + 1) % 2;
+            particles = [];
+        }
+
+        // --- MediaPipe 設定 ---
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        hands.onResults(results => { handData = results; });
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 640, height: 480
+        });
+        camera.start();
+
+        // --- p5.js 畫布 ---
+        function setup() {
+            let cnv = createCanvas(windowWidth, windowHeight);
+            cnv.parent('canvas-container');
+        }
+
+        function draw() {
+            background(mode === 0 ? 245 : 10);
+            
+            if (mode === 0) modeLabel.innerText = "⊹ 玫瑰紋樣 ⊹";
+            else modeLabel.innerText = "失序邊境 .𖥔 ݁˖";
+
+            if (handData && handData.multiHandLandmarks.length > 0) {
+                const landmarks = handData.multiHandLandmarks[0];
+                
+                // 取得食指尖與手腕座標 (反轉 X 軸以符合鏡像)
+                let tx = (1 - landmarks[0].x) * width;
+                let ty = landmarks[0].y * height;
+                let tipY = landmarks[8].y;
+                let wristY = landmarks[0].y;
+                
+                let isFist = Math.abs(tipY - wristY) < 0.2; // 簡單判定握拳
+
+                if (!isFist) {
+                    for (let i = 0; i < (mode === 0 ? 2 : 6); i++) {
+                        particles.push(new Particle(tx, ty, mode));
+                    }
+                }
+
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    particles[i].update(isFist, tx, ty);
+                    particles[i].show();
+                    if (particles[i].finished()) particles.splice(i, 1);
+                }
+            }
+        }
+
+        class Particle {
+            constructor(x, y, mode) {
+                this.x = x; this.y = y; this.mode = mode;
+                this.alpha = 255; this.size = random(mode === 0 ? 10 : 2, mode === 0 ? 20 : 5);
+                this.vx = random(-3, 3); this.vy = random(-3, 3);
+            }
+            finished() { return this.alpha <= 0; }
+            update(isFist, tx, ty) {
+                if (isFist) {
+                    this.x = lerp(this.x, tx, 0.2); this.y = lerp(this.y, ty, 0.2); this.alpha -= 15;
+                } else {
+                    this.x += this.vx; this.y += this.vy; this.alpha -= (this.mode === 0 ? 3 : 7);
+                }
+            }
+            show() {
+                noStroke();
+                if (this.mode === 0) {
+                    fill(200, 50, 50, this.alpha);
+                    ellipse(this.x, this.y, this.size); // 玫瑰簡化版
+                } else {
+                    fill(0, 255, 200, this.alpha);
+                    rect(this.x, this.y, this.size, this.size); // 邊境碎片
+                }
+            }
+        }
+
+        function windowResized() { resizeCanvas(windowWidth, windowHeight); }
+    </script>
 </body>
 </html>
