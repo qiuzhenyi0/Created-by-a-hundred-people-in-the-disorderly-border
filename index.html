@@ -320,7 +320,8 @@ class Particle {
             const steer = p5.Vector.sub(desired, this.vel);
             steer.limit(0.9);
             this.acc.add(steer);
-        } else {
+        }
+         else {
             // ── WANDER + FLEE hand ────────────────────────────────
             // Flee from hand
             // ── 跟其他粒子保持距離（簡化 Boids）──
