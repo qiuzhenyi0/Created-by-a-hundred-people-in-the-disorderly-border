@@ -2,145 +2,177 @@
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>失序邊境.𖥔 ݁˖𝕋𝕙𝕖 𝕃𝕚𝕞𝕚𝕟𝕒𝕝 𝕍𝕖𝕚𝕝.⋆百人紀念創作-手勢偵測</title>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>玫瑰與失序邊境</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <style>
-        body { margin: 0; background: #000; overflow: hidden; }
-        #canvas-container { position: relative; width: 100vw; height: 100vh; }
-        .controls { position: absolute; top: 20px; left: 20px; z-index: 10; display: flex; flex-direction: column; gap: 10px; }
-        button { padding: 12px 24px; border-radius: 25px; border: none; background: rgba(255,255,255,0.8); cursor: pointer; font-weight: bold; }
+        body, html { margin: 0; padding: 0; background-color: #000; overflow: hidden; }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; z-index: 10; padding: 20px; pointer-events: none; }
+        .btn { 
+            pointer-events: auto; padding: 12px 24px; border-radius: 25px; 
+            border: none; background: rgba(255,255,255,0.85); font-weight: bold; font-size: 16px;
+        }
+        #mode-text { margin-top: 10px; color: white; font-family: monospace; font-size: 18px; text-shadow: 2px 2px 4px rgba(0,0,0,0.8); }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: white; font-family: monospace; z-index: 5; }
     </style>
 </head>
 <body>
-    <div class="controls">
-        <button onclick="toggleMode()">切換模式 / Switch Mode</button>
-        <div id="mode-label" style="color: white; font-family: monospace; text-shadow: 1px 1px 2px #000;"></div>
+    <div id="ui-layer">
+        <button class="btn" onclick="toggleMode()">切換模式 / Switch Mode</button>
+        <div id="mode-text">正在開啟攝影機...</div>
     </div>
-    <video id="input_video" style="display:none;"></video>
-    <div id="canvas-container"></div>
+    <div id="loading">模型載入中，請稍候...</div>
 
     <script>
-        // ====== 全新修正版：流暢背景與隨時粒子 ======
         let mode = 0; // 0: 玫瑰, 1: 失序邊境
+        let video;
         let particles = [];
-        let lastTimestamp = 0;
-        const videoElement = document.getElementById('input_video');
-        const modeLabel = document.getElementById('mode-label');
+        let handX = 0, handY = 0;
+        let isFist = false;
+        let isHandVisible = false;
+
+        // 模式文字
+        const textRose = "⊹ 玫瑰紋樣 ⊹\n⣤⣶⠿⢖⣢⣴⣶⣦...";
+        const textLiminal = "失序邊境 .𖥔 ݁˖\n𝕋𝕙𝕖 𝕃𝕚𝕞𝕚𝕟𝕒𝕝 𝕍𝕖𝕚𝕝.⋆";
 
         function toggleMode() {
             mode = (mode + 1) % 2;
-            particles = [];
+            document.getElementById('mode-text').innerText = (mode === 0) ? textRose : textLiminal;
         }
 
-        // === 1. MediaPipe 設定 (手勢偵測只是輔助) ===
-        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-        hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-        // 手勢偵測結果只存儲起來，不卡住 p5.js 的 draw 迴圈
-        let currentHandData = null;
-        hands.onResults(results => { currentHandData = results; });
-
-        // === 2. 攝影機啟動 (速度優先，Lite版) ===
-        const camera = new Camera(videoElement, {
-            onFrame: async () => { await hands.send({image: videoElement}); },
-            width: 320, height: 240 // 降低解析度以提升手機效能
-        });
-        camera.start();
-
-        // === 3. p5.js 畫布 ===
         function setup() {
-            let cnv = createCanvas(windowWidth, windowHeight);
-            cnv.parent('canvas-container');
+            createCanvas(windowWidth, windowHeight);
+            
+            // 使用 p5.js 內建方法開啟攝影機 (這在手機上最穩定)
+            video = createCapture(VIDEO, function() {
+                document.getElementById('mode-text').innerText = (mode === 0) ? textRose : textLiminal;
+                initMediaPipe(); // 攝影機準備好後，才啟動手勢辨識
+            });
+            video.size(320, 240);
+            video.hide(); // 隱藏原生影片元素，我們要在畫布上自己畫
+        }
+
+        // 初始化 MediaPipe
+        function initMediaPipe() {
+            const hands = new Hands({
+                locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+            });
+            hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+            
+            hands.onResults((results) => {
+                document.getElementById('loading').style.display = 'none'; // 隱藏載入文字
+                
+                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                    isHandVisible = true;
+                    let landmarks = results.multiHandLandmarks[0];
+                    let wrist = landmarks[0];
+                    let indexTip = landmarks[8];
+                    
+                    // 計算手心座標 (並做水平鏡像翻轉)
+                    handX = (1 - wrist.x) * width;
+                    handY = wrist.y * height;
+                    
+                    // 判斷握拳 (食指尖與手腕的距離小於 0.15)
+                    let d = dist(indexTip.x, indexTip.y, wrist.x, wrist.y);
+                    isFist = d < 0.15;
+                } else {
+                    isHandVisible = false;
+                    isFist = false;
+                }
+            });
+
+            // 建立一個持續將影像送入模型的迴圈
+            async function predictFrame() {
+                if (video.elt.readyState >= 2) {
+                    await hands.send({ image: video.elt });
+                }
+                requestAnimationFrame(predictFrame);
+            }
+            predictFrame();
         }
 
         function draw() {
-            // 顯示攝影機背景並加上半透明遮罩
-            push();
-            translate(width, 0); scale(-1, 1); // 水平鏡像
-            image(videoElement, 0, 0, width, height, 0, 0, 320, 240); // 繪製 video 作為背景
-            if (mode === 0) fill(255, 200, 200, 150); // 玫瑰柔美層
-            else fill(0, 0, 0, 150); // 邊境深邃層
-            rect(0, 0, width, height);
-            pop();
-            
-            // 顯示模式文字
-            if (mode === 0) modeLabel.innerText = "⊹ 玫瑰紋樣 ⊹";
-            else modeLabel.innerText = "失序邊境 .𖥔 ݁˖";
+            background(0);
 
-            // 即使沒有手勢，只要有攝影機輸入，就產生隨機粒子
-            if (videoElement.currentTime !== lastTimestamp) {
-                lastTimestamp = videoElement.currentTime;
-                // 在畫面隨機位置產生 2 顆粒子
-                particles.push(new Particle(random(width), random(height), mode));
-                particles.push(new Particle(random(width), random(height), mode));
+            // 1. 繪製攝影機背景 (水平鏡像)
+            if (video.loadedmetadata) {
+                push();
+                translate(width, 0);
+                scale(-1, 1);
+                image(video, 0, 0, width, height);
+                // 加上模式專屬濾鏡
+                if (mode === 0) fill(150, 20, 50, 100); // 玫瑰暗紅遮罩
+                else fill(0, 10, 20, 180); // 邊境深藍遮罩
+                rect(0, 0, width, height);
+                pop();
             }
 
-            // === 3. 手勢加強：如果偵測到握拳，吸入粒子 ===
-            if (currentHandData && currentHandData.multiHandLandmarks.length > 0) {
-                const landmarks = currentHandData.multiHandLandmarks[0];
-                // 取得食指尖 (Landmark 8) 與手腕 (Landmark 0)
-                let tx = (1 - landmarks[0].x) * width; // 取得手心位置
-                let ty = landmarks[0].y * height;
-                let isFist = dist(landmarks[8].x, landmarks[8].y, landmarks[0].x, landmarks[0].y) < 0.2; // 簡單握拳
+            // 2. 隨時產生背景散亂粒子
+            if (frameCount % 3 === 0) {
+                particles.push(new Particle(random(width), random(height), mode, true));
+            }
 
-                // 如果張開手，在手的位置噴發更多粒子
-                if (!isFist && frameCount % 2 === 0) {
-                    for (let i = 0; i < (mode === 0 ? 3 : 8); i++) {
-                        particles.push(new Particle(tx, ty, mode));
-                    }
+            // 3. 處理手勢互動
+            if (isHandVisible && !isFist) {
+                // 張開手時，從手心噴發粒子
+                if (frameCount % 2 === 0) {
+                    for(let i=0; i<3; i++) particles.push(new Particle(handX, handY, mode, false));
                 }
+            }
 
-                // 更新粒子邏輯 (傳入手勢資訊)
-                for (let i = particles.length - 1; i >= 0; i--) {
-                    particles[i].update(isFist, tx, ty); 
-                    particles[i].show();
-                    if (particles[i].finished()) particles.splice(i, 1);
-                }
-            } else {
-                // 沒有偵測到手時，粒子正常更新 (不吸入)
-                for (let i = particles.length - 1; i >= 0; i--) {
-                    particles[i].update(false, 0, 0); 
-                    particles[i].show();
-                    if (particles[i].finished()) particles.splice(i, 1);
+            // 4. 更新與繪製粒子
+            for (let i = particles.length - 1; i >= 0; i--) {
+                particles[i].update(isFist, handX, handY);
+                particles[i].show();
+                if (particles[i].finished()) {
+                    particles.splice(i, 1);
                 }
             }
         }
 
-        // ====== 粒子類別 ======
+        // 粒子類別
         class Particle {
-            constructor(x, y, mode) {
-                this.x = x; this.y = y; this.mode = mode;
-                this.alpha = random(150, 255); // 初始透明度
-                this.size = random(mode === 0 ? 8 : 1, mode === 0 ? 15 : 4);
-                this.vx = random(-4, 4); // 增加隨機速度
-                this.vy = random(-4, 4);
-                this.gravity = mode === 0 ? random(0.01, 0.05) : 0; // 玫瑰有重力，邊境沒有
+            constructor(x, y, m, isBackground) {
+                this.x = x;
+                this.y = y;
+                this.mode = m;
+                this.alpha = random(150, 255);
+                this.size = m === 0 ? random(6, 15) : random(2, 6);
+                
+                // 背景粒子移動慢，手中噴發的粒子移動快
+                let speed = isBackground ? 1 : 6;
+                this.vx = random(-speed, speed);
+                this.vy = random(-speed, speed);
+                this.gravity = m === 0 ? random(0.02, 0.05) : 0;
             }
-            finished() { return this.alpha <= 0; }
-            update(isFist, tx, ty) {
-                if (isFist) {
-                    // 握拳：向中心吸入 (加強坍塌感)
-                    this.x = lerp(this.x, tx, 0.25);
-                    this.y = lerp(this.y, ty, 0.25);
-                    this.size *= 0.96;
-                    this.alpha -= 10;
+
+            finished() { return this.alpha <= 0 || this.size <= 0.5; }
+
+            update(fistActive, tx, ty) {
+                if (fistActive) {
+                    // 握拳坍塌效果
+                    this.x = lerp(this.x, tx, 0.15);
+                    this.y = lerp(this.y, ty, 0.15);
+                    this.size *= 0.95;
+                    this.alpha -= 8;
                 } else {
-                    // 張開：正常擴散
-                    this.vy += this.gravity; // 加入重力效果
-                    this.x += this.vx; this.y += this.vy;
-                    this.alpha -= (this.mode === 0 ? 3 : 7); // 淡出
+                    // 正常飄散
+                    this.vy += this.gravity;
+                    this.x += this.vx;
+                    this.y += this.vy;
+                    this.alpha -= (this.mode === 0 ? 3 : 5);
                 }
             }
+
             show() {
                 noStroke();
                 if (this.mode === 0) {
-                    fill(180, 50, 50, this.alpha); // 深紅色
-                    ellipse(this.x, this.y, this.size); 
+                    fill(255, random(100, 180), random(120, 200), this.alpha); // 玫瑰粉紅色
+                    ellipse(this.x, this.y, this.size);
                 } else {
-                    fill(0, 255, 200, this.alpha); // 青色 (Cyan)
-                    rect(this.x, this.y, this.size, this.size); // 邊境破碎碎片
+                    fill(0, 255, 255, this.alpha); // 邊境青色
+                    rect(this.x, this.y, this.size, this.size);
                 }
             }
         }
