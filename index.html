@@ -122,7 +122,13 @@ function buildTargets() {
 function buildRoseTargets(n) {
     let pts = [];
     const cx = width / 2, cy = height / 2;
-
+// 跟附近粒子保持距離（簡化版）
+for (let other of particles) {
+    let d = dist(this.pos.x, this.pos.y, other.pos.x, other.pos.y);
+    if (d < 20) {
+        // 推開
+    }
+}
     // Rose curve (rhodonea) petals
     for (let i = 0; i < n * 0.6; i++) {
         let t = map(i, 0, n * 0.6, 0, TWO_PI * 3);
