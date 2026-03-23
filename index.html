@@ -122,13 +122,7 @@ function buildTargets() {
 function buildRoseTargets(n) {
     let pts = [];
     const cx = width / 2, cy = height / 2;
-// 跟附近粒子保持距離（簡化版）
-for (let other of particles) {
-    let d = dist(this.pos.x, this.pos.y, other.pos.x, other.pos.y);
-    if (d < 20) {
-        // 推開
-    }
-}
+
     // Rose curve (rhodonea) petals
     for (let i = 0; i < n * 0.6; i++) {
         let t = map(i, 0, n * 0.6, 0, TWO_PI * 3);
@@ -329,6 +323,18 @@ class Particle {
         } else {
             // ── WANDER + FLEE hand ────────────────────────────────
             // Flee from hand
+            // ── 跟其他粒子保持距離（簡化 Boids）──
+            for (let other of particles) {
+                if (other === this) continue;
+
+                let d = dist(this.pos.x, this.pos.y, other.pos.x, other.pos.y);
+    
+                if (d < 20) {
+        let push = p5.Vector.sub(this.pos, other.pos);
+        push.setMag(0.5); // 推開強度
+        this.acc.add(push);
+    }
+}
             if (isHandVisible) {
                 const toHand = p5.Vector.sub(this.pos, createVector(hx, hy));
                 const d = toHand.mag();
