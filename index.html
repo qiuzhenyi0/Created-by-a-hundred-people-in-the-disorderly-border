@@ -22,129 +22,130 @@
     <video id="input_video" style="display:none;"></video>
     <div id="canvas-container"></div>
 
-   // ====== 全新修正版：流暢背景與隨時粒子 ======
-let mode = 0; // 0: 玫瑰, 1: 失序邊境
-let particles = [];
-let lastTimestamp = 0;
-const videoElement = document.getElementById('input_video');
-const modeLabel = document.getElementById('mode-label');
+    <script>
+        // ====== 全新修正版：流暢背景與隨時粒子 ======
+        let mode = 0; // 0: 玫瑰, 1: 失序邊境
+        let particles = [];
+        let lastTimestamp = 0;
+        const videoElement = document.getElementById('input_video');
+        const modeLabel = document.getElementById('mode-label');
 
-function toggleMode() {
-    mode = (mode + 1) % 2;
-    particles = [];
-}
+        function toggleMode() {
+            mode = (mode + 1) % 2;
+            particles = [];
+        }
 
-// === 1. MediaPipe 設定 (手勢偵測只是輔助) ===
-const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-// 手勢偵測結果只存儲起來，不卡住 p5.js 的 draw 迴圈
-let currentHandData = null;
-hands.onResults(results => { currentHandData = results; });
+        // === 1. MediaPipe 設定 (手勢偵測只是輔助) ===
+        const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
+        hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+        // 手勢偵測結果只存儲起來，不卡住 p5.js 的 draw 迴圈
+        let currentHandData = null;
+        hands.onResults(results => { currentHandData = results; });
 
-// === 2. 攝影機啟動 (速度優先，Lite版) ===
-const camera = new Camera(videoElement, {
-    onFrame: async () => { await hands.send({image: videoElement}); },
-    width: 320, height: 240 // 降低解析度以提升手機效能
-});
-camera.start();
+        // === 2. 攝影機啟動 (速度優先，Lite版) ===
+        const camera = new Camera(videoElement, {
+            onFrame: async () => { await hands.send({image: videoElement}); },
+            width: 320, height: 240 // 降低解析度以提升手機效能
+        });
+        camera.start();
 
-// === 3. p5.js 畫布 ===
-function setup() {
-    let cnv = createCanvas(windowWidth, windowHeight);
-    cnv.parent('canvas-container');
-}
+        // === 3. p5.js 畫布 ===
+        function setup() {
+            let cnv = createCanvas(windowWidth, windowHeight);
+            cnv.parent('canvas-container');
+        }
 
-function draw() {
-    // 💡 修正1：顯示攝影機背景 (跟參考專案一樣)
-    // 我們將 video 繪製在背景，並加上一層半透明的模式顏色遮罩
-    push();
-    translate(width, 0); scale(-1, 1); // 水平鏡像
-    image(videoElement, 0, 0, width, height, 0, 0, 320, 240); // 繪製 video 作為背景
-    if (mode === 0) fill(255, 200, 200, 150); // 玫瑰柔美層
-    else fill(0, 0, 0, 150); // 邊境深邃層
-    rect(0, 0, width, height);
-    pop();
-    
-    // 顯示模式文字
-    if (mode === 0) modeLabel.innerText = "⊹ 玫瑰紋樣 ⊹";
-    else modeLabel.innerText = "失序邊境 .𖥔 ݁˖";
+        function draw() {
+            // 顯示攝影機背景並加上半透明遮罩
+            push();
+            translate(width, 0); scale(-1, 1); // 水平鏡像
+            image(videoElement, 0, 0, width, height, 0, 0, 320, 240); // 繪製 video 作為背景
+            if (mode === 0) fill(255, 200, 200, 150); // 玫瑰柔美層
+            else fill(0, 0, 0, 150); // 邊境深邃層
+            rect(0, 0, width, height);
+            pop();
+            
+            // 顯示模式文字
+            if (mode === 0) modeLabel.innerText = "⊹ 玫瑰紋樣 ⊹";
+            else modeLabel.innerText = "失序邊境 .𖥔 ݁˖";
 
-    // 💡 修正2：即使沒有手勢，隨時產生散亂粒子 (這就是那個專案的秘密)
-    // 只要有攝影機輸入，就產生隨機粒子
-    if (videoElement.currentTime !== lastTimestamp) {
-        lastTimestamp = videoElement.currentTime;
-        // 在畫面隨機位置產生 2 顆粒子
-        particles.push(new Particle(random(width), random(height), mode));
-        particles.push(new Particle(random(width), random(height), mode));
-    }
+            // 即使沒有手勢，只要有攝影機輸入，就產生隨機粒子
+            if (videoElement.currentTime !== lastTimestamp) {
+                lastTimestamp = videoElement.currentTime;
+                // 在畫面隨機位置產生 2 顆粒子
+                particles.push(new Particle(random(width), random(height), mode));
+                particles.push(new Particle(random(width), random(height), mode));
+            }
 
-    // === 3. 手勢加強：如果偵測到握拳，吸入粒子 ===
-    if (currentHandData && currentHandData.multiHandLandmarks.length > 0) {
-        const landmarks = currentHandData.multiHandLandmarks[0];
-        // 取得食指尖 (Landmark 8) 與手腕 (Landmark 0)
-        let tx = (1 - landmarks[0].x) * width; // 取得手心位置
-        let ty = landmarks[0].y * height;
-        let isFist = dist(landmarks[8].x, landmarks[8].y, landmarks[0].x, landmarks[0].y) < 0.2; // 簡單握拳
+            // === 3. 手勢加強：如果偵測到握拳，吸入粒子 ===
+            if (currentHandData && currentHandData.multiHandLandmarks.length > 0) {
+                const landmarks = currentHandData.multiHandLandmarks[0];
+                // 取得食指尖 (Landmark 8) 與手腕 (Landmark 0)
+                let tx = (1 - landmarks[0].x) * width; // 取得手心位置
+                let ty = landmarks[0].y * height;
+                let isFist = dist(landmarks[8].x, landmarks[8].y, landmarks[0].x, landmarks[0].y) < 0.2; // 簡單握拳
 
-        // 💡 修正3：如果張開手，在手的位置噴發更多粒子
-        if (!isFist && frameCount % 2 === 0) {
-            for (let i = 0; i < (mode === 0 ? 3 : 8); i++) {
-                particles.push(new Particle(tx, ty, mode));
+                // 如果張開手，在手的位置噴發更多粒子
+                if (!isFist && frameCount % 2 === 0) {
+                    for (let i = 0; i < (mode === 0 ? 3 : 8); i++) {
+                        particles.push(new Particle(tx, ty, mode));
+                    }
+                }
+
+                // 更新粒子邏輯 (傳入手勢資訊)
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    particles[i].update(isFist, tx, ty); 
+                    particles[i].show();
+                    if (particles[i].finished()) particles.splice(i, 1);
+                }
+            } else {
+                // 沒有偵測到手時，粒子正常更新 (不吸入)
+                for (let i = particles.length - 1; i >= 0; i--) {
+                    particles[i].update(false, 0, 0); 
+                    particles[i].show();
+                    if (particles[i].finished()) particles.splice(i, 1);
+                }
             }
         }
 
-        // 💡 更新粒子邏輯 (傳入手勢資訊)
-        for (let i = particles.length - 1; i >= 0; i--) {
-            particles[i].update(isFist, tx, ty); // 只有在偵測到手且握拳時，粒子才被吸向手心
-            particles[i].show();
-            if (particles[i].finished()) particles.splice(i, 1);
+        // ====== 粒子類別 ======
+        class Particle {
+            constructor(x, y, mode) {
+                this.x = x; this.y = y; this.mode = mode;
+                this.alpha = random(150, 255); // 初始透明度
+                this.size = random(mode === 0 ? 8 : 1, mode === 0 ? 15 : 4);
+                this.vx = random(-4, 4); // 增加隨機速度
+                this.vy = random(-4, 4);
+                this.gravity = mode === 0 ? random(0.01, 0.05) : 0; // 玫瑰有重力，邊境沒有
+            }
+            finished() { return this.alpha <= 0; }
+            update(isFist, tx, ty) {
+                if (isFist) {
+                    // 握拳：向中心吸入 (加強坍塌感)
+                    this.x = lerp(this.x, tx, 0.25);
+                    this.y = lerp(this.y, ty, 0.25);
+                    this.size *= 0.96;
+                    this.alpha -= 10;
+                } else {
+                    // 張開：正常擴散
+                    this.vy += this.gravity; // 加入重力效果
+                    this.x += this.vx; this.y += this.vy;
+                    this.alpha -= (this.mode === 0 ? 3 : 7); // 淡出
+                }
+            }
+            show() {
+                noStroke();
+                if (this.mode === 0) {
+                    fill(180, 50, 50, this.alpha); // 深紅色
+                    ellipse(this.x, this.y, this.size); 
+                } else {
+                    fill(0, 255, 200, this.alpha); // 青色 (Cyan)
+                    rect(this.x, this.y, this.size, this.size); // 邊境破碎碎片
+                }
+            }
         }
-    } else {
-        // 沒有偵測到手時，粒子正常更新 (不吸入)
-        for (let i = particles.length - 1; i >= 0; i--) {
-            particles[i].update(false, 0, 0); 
-            particles[i].show();
-            if (particles[i].finished()) particles.splice(i, 1);
-        }
-    }
-}
 
-// ====== 粒子類別 (修正速度與形狀) ======
-class Particle {
-    constructor(x, y, mode) {
-        this.x = x; this.y = y; this.mode = mode;
-        this.alpha = random(150, 255); // 初始透明度
-        this.size = random(mode === 0 ? 8 : 1, mode === 0 ? 15 : 4);
-        this.vx = random(-4, 4); // 增加隨機速度
-        this.vy = random(-4, 4);
-        this.gravity = mode === 0 ? random(0.01, 0.05) : 0; // 玫瑰有重力，邊境沒有
-    }
-    finished() { return this.alpha <= 0; }
-    update(isFist, tx, ty) {
-        if (isFist) {
-            // 握拳：向中心吸入 (加強坍塌感)
-            this.x = lerp(this.x, tx, 0.25);
-            this.y = lerp(this.y, ty, 0.25);
-            this.size *= 0.96;
-            this.alpha -= 10;
-        } else {
-            // 張開：正常擴散
-            this.vy += this.gravity; // 加入重力效果
-            this.x += this.vx; this.y += this.vy;
-            this.alpha -= (this.mode === 0 ? 3 : 7); // 淡出
-        }
-    }
-    show() {
-        noStroke();
-        if (this.mode === 0) {
-            fill(180, 50, 50, this.alpha); // 深紅色
-            ellipse(this.x, this.y, this.size); 
-        } else {
-            fill(0, 255, 200, this.alpha); // 青色 (Cyan)
-            rect(this.x, this.y, this.size, this.size); // 邊境破碎碎片
-        }
-    }
-}
-
-function windowResized() { resizeCanvas(windowWidth, windowHeight); }
-// ====== 修正版代碼結束 ======
+        function windowResized() { resizeCanvas(windowWidth, windowHeight); }
+    </script>
+</body>
+</html>
