@@ -9,45 +9,44 @@
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <style>
         body, html { margin: 0; padding: 0; background-color: #000; overflow: hidden; touch-action: none; }
-        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; z-index: 10; padding: 25px; pointer-events: none; }
-        .btn { 
-            pointer-events: auto; padding: 12px 20px; border-radius: 2px; 
-            border: 1px solid #00ffdc; background: rgba(0,0,0,0.8); 
-            color: #00ffdc; font-family: monospace; cursor: pointer; font-size: 14px;
-        }
         #start-mask {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: #000; color: #00ffdc; z-index: 100;
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            font-family: monospace; cursor: pointer;
+            font-family: 'Courier New', monospace; cursor: pointer;
+        }
+        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; z-index: 10; padding: 25px; pointer-events: none; visibility: hidden; }
+        .btn { 
+            pointer-events: auto; padding: 12px 24px; border: 1px solid #00ffdc; 
+            background: rgba(0,0,0,0.8); color: #00ffdc; font-family: monospace; 
+            font-size: 16px; letter-spacing: 2px;
         }
     </style>
 </head>
 <body>
-    <div id="start-mask" onclick="startSystem()">
+    <div id="start-mask" onclick="initSystem()">
         <div style="font-size: 24px; margin-bottom: 20px;">[ PROJECT ZERO ]</div>
         <div class="btn">INITIALIZE SYSTEM</div>
+        <div style="margin-top: 20px; font-size: 12px; opacity: 0.6;">(Tap to Access Camera)</div>
     </div>
 
     <div id="ui-layer">
-        <button class="btn" onclick="toggleMode()">MODE_SWITCH</button>
-        <div id="status" style="color: white; font-family: monospace; margin-top: 10px; font-size: 16px;">[ SYSTEM_IDLE ]</div>
+        <button class="btn" onclick="toggleMode()">SYSTEM_SWITCH</button>
+        <div id="status" style="color: white; font-family: monospace; margin-top: 15px;">[ IDLE ]</div>
     </div>
 
     <script>
         let mode = 1; // 1: 文字, 0: 玫瑰
-        let video;
-        let particles = [];
-        let targets = [];
-        const numParticles = 1000;
+        let video, particles = [], targets = [];
         let handX = 0, handY = 0, isFist = false, isHandVisible = false;
         let started = false;
+        const numParticles = 1200; // 高密度粒子
 
-        function startSystem() {
+        function initSystem() {
             document.getElementById('start-mask').style.display = 'none';
-            userStartAudio(); // 確保音訊/錄影權限啟動
+            document.getElementById('ui-layer').style.visibility = 'visible';
+            if (video) video.elt.play();
             started = true;
-            if (video) video.loop();
         }
 
         function toggleMode() {
@@ -56,7 +55,9 @@
         }
 
         function setup() {
-            createCanvas(windowWidth, windowHeight);
+            let cnv = createCanvas(windowWidth, windowHeight);
+            cnv.style('display', 'block');
+            
             video = createCapture(VIDEO);
             video.size(640, 480);
             video.hide();
@@ -64,6 +65,7 @@
             for (let i = 0; i < numParticles; i++) {
                 particles.push(new Particle());
             }
+            
             initMediaPipe();
             createTargets();
         }
@@ -76,15 +78,16 @@
             pg.textAlign(CENTER, CENTER);
             
             if (mode === 1) {
-                pg.textSize(width * 0.1);
+                pg.textSize(width * 0.09);
+                pg.textFont('Courier New');
                 pg.text("The Liminal Veil", width/2, height/2);
             } else {
                 pg.translate(width/2, height/2);
-                for (let a = 0; a < TWO_PI; a += 0.01) {
-                    let r = width * 0.012;
+                for (let a = 0; a < TWO_PI; a += 0.02) {
+                    let r = width * 0.015;
                     let x = r * 16 * pow(sin(a), 3);
                     let y = -r * (13 * cos(a) - 5 * cos(2*a) - 2 * cos(3*a) - cos(4*a));
-                    pg.rect(x, y, 2, 2);
+                    pg.rect(x, y, 4, 4);
                 }
             }
 
@@ -92,10 +95,11 @@
             let coords = [];
             for (let x = 0; x < pg.width; x += 5) {
                 for (let y = 0; y < pg.height; y += 5) {
-                    let i = (x + y * pg.width) * 4;
-                    if (pg.pixels[i] > 128) coords.push(createVector(x, y));
+                    let index = (x + y * pg.width) * 4;
+                    if (pg.pixels[index] > 128) coords.push(createVector(x, y));
                 }
             }
+            
             for (let i = 0; i < numParticles; i++) {
                 targets[i] = coords[i % coords.length] || createVector(random(width), random(height));
             }
@@ -106,25 +110,24 @@
             if (!started) return;
             background(0);
 
-            // 背景影片層
+            // 背景影片
             push();
             translate(width, 0); scale(-1, 1);
-            tint(255, 80);
+            tint(255, 60); 
             image(video, 0, 0, width, height);
             pop();
 
             document.getElementById('status').innerText = isFist ? "[ STATUS: CONVERGING ]" : "[ STATUS: DISORDERLY ]";
 
-            // 粒子繪製核心
-            // 使用 drawingContext 增加發光感 (模擬圖1)
-            drawingContext.shadowBlur = 10;
-            drawingContext.shadowColor = mode === 1 ? '#00ffdc' : '#ff4d6d';
+            // 繪製粒子 (增加發光感)
+            drawingContext.shadowBlur = 12;
+            drawingContext.shadowColor = mode === 1 ? '#00ffdc' : '#ff3a6d';
 
             for (let i = 0; i < particles.length; i++) {
                 let p = particles[i];
                 if (isHandVisible) {
-                    if (isFist) p.applyForce(p.arrive(targets[i])); // 握拳匯聚
-                    else p.applyForce(p.flee(createVector(handX, handY))); // 張手逃逸
+                    if (isFist) p.applyForce(p.arrive(targets[i]));
+                    else p.applyForce(p.flee(createVector(handX, handY)));
                 } else {
                     p.wander();
                 }
@@ -138,8 +141,8 @@
                 this.pos = createVector(random(width), random(height));
                 this.vel = p5.Vector.random2D();
                 this.acc = createVector(0, 0);
-                this.maxSpeed = 10;
-                this.maxForce = 0.6;
+                this.maxSpeed = 12;
+                this.maxForce = 0.8;
             }
 
             applyForce(f) { this.acc.add(f); }
@@ -155,7 +158,7 @@
 
             flee(target) {
                 let desired = p5.Vector.sub(this.pos, target);
-                if (desired.mag() < 120) {
+                if (desired.mag() < 130) {
                     desired.setMag(this.maxSpeed);
                     let steer = p5.Vector.sub(desired, this.vel);
                     return steer.limit(this.maxForce * 1.5);
@@ -163,40 +166,36 @@
                 return createVector(0, 0);
             }
 
-            wander() {
-                this.acc.add(p5.Vector.random2D().mult(0.1));
-            }
+            wander() { this.acc.add(p5.Vector.random2D().mult(0.15)); }
 
             update() {
                 this.vel.add(this.acc);
                 this.vel.limit(this.maxSpeed);
                 this.pos.add(this.vel);
                 this.acc.mult(0);
-                this.vel.mult(0.92);
+                this.vel.mult(0.94);
             }
 
             show() {
                 noStroke();
-                fill(mode === 1 ? '#00ffdc' : '#ff4d6d');
-                if (mode === 1) rect(this.pos.x, this.pos.y, 2.5, 2.5);
-                else ellipse(this.pos.x, this.pos.y, 3.5);
+                fill(mode === 1 ? '#00ffdc' : '#ff3a6d');
+                if (mode === 1) rect(this.pos.x, this.pos.y, 2, 2);
+                else ellipse(this.pos.x, this.pos.y, 3, 3);
             }
         }
 
         function initMediaPipe() {
             const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-            hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
+            hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
             hands.onResults(results => {
                 if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                     isHandVisible = true;
                     let lm = results.multiHandLandmarks[0];
                     handX = (1 - lm[0].x) * width;
                     handY = lm[0].y * height;
-                    // 偵測握拳：食指尖到手腕距離
                     isFist = dist(lm[8].x, lm[8].y, lm[0].x, lm[0].y) < 0.12;
                 } else {
                     isHandVisible = false;
-                    isFist = false;
                 }
             });
             const camera = new Camera(video.elt, {
@@ -205,6 +204,7 @@
             });
             camera.start();
         }
+
         function windowResized() { resizeCanvas(windowWidth, windowHeight); createTargets(); }
     </script>
 </body>
