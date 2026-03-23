@@ -3,209 +3,398 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>The Liminal Veil - Project Zero</title>
+    <title>Hand Gesture Particle Symphony</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <style>
-        body, html { margin: 0; padding: 0; background-color: #000; overflow: hidden; touch-action: none; }
-        #start-mask {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: #000; color: #00ffdc; z-index: 100;
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body, html { background: #000; overflow: hidden; width: 100%; height: 100%; }
+        #ui-layer {
+            position: fixed; top: 0; left: 0; width: 100%; z-index: 10;
+            padding: 16px 20px; pointer-events: none;
+            display: flex; flex-direction: column; align-items: center; gap: 8px;
+        }
+        #switch-btn {
+            pointer-events: auto;
+            padding: 10px 28px; border-radius: 30px; border: none;
+            background: rgba(255,255,255,0.88);
+            font-weight: 700; font-size: 15px; cursor: pointer;
+            box-shadow: 0 2px 16px rgba(0,0,0,0.4);
+            letter-spacing: 0.5px;
+        }
+        #mode-label {
+            color: #fff; font-family: 'Courier New', monospace;
+            font-size: 16px; text-shadow: 0 0 12px rgba(0,255,200,0.8);
+            letter-spacing: 1px;
+        }
+        #gesture-hint {
+            color: rgba(255,255,255,0.55); font-family: 'Courier New', monospace;
+            font-size: 13px; font-style: italic;
+        }
+        #loading-overlay {
+            position: fixed; inset: 0; background: rgba(0,0,0,0.85);
             display: flex; flex-direction: column; align-items: center; justify-content: center;
-            font-family: 'Courier New', monospace; cursor: pointer;
+            z-index: 100; color: #fff; font-family: 'Courier New', monospace; gap: 16px;
         }
-        #ui-layer { position: absolute; top: 0; left: 0; width: 100%; z-index: 10; padding: 25px; pointer-events: none; visibility: hidden; }
-        .btn { 
-            pointer-events: auto; padding: 12px 24px; border: 1px solid #00ffdc; 
-            background: rgba(0,0,0,0.8); color: #00ffdc; font-family: monospace; 
-            font-size: 16px; letter-spacing: 2px;
+        #loading-overlay .spinner {
+            width: 40px; height: 40px; border: 3px solid rgba(255,255,255,0.2);
+            border-top-color: #0ff; border-radius: 50%;
+            animation: spin 0.8s linear infinite;
         }
+        @keyframes spin { to { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
-    <div id="start-mask" onclick="initSystem()">
-        <div style="font-size: 24px; margin-bottom: 20px;">[ PROJECT ZERO ]</div>
-        <div class="btn">INITIALIZE SYSTEM</div>
-        <div style="margin-top: 20px; font-size: 12px; opacity: 0.6;">(Tap to Access Camera)</div>
-    </div>
+<div id="loading-overlay">
+    <div class="spinner"></div>
+    <div>模型載入中，請稍候…</div>
+</div>
 
-    <div id="ui-layer">
-        <button class="btn" onclick="toggleMode()">SYSTEM_SWITCH</button>
-        <div id="status" style="color: white; font-family: monospace; margin-top: 15px;">[ IDLE ]</div>
-    </div>
+<div id="ui-layer">
+    <button id="switch-btn" onclick="toggleMode()">切換模式 / Switch Mode</button>
+    <div id="mode-label">⊹ 玫瑰紋樣 Rose Pattern ⊹</div>
+    <div id="gesture-hint">✊ 握拳聚合 &nbsp;|&nbsp; 🖐 張手散開</div>
+</div>
 
-    <script>
-        let mode = 1; // 1: 文字, 0: 玫瑰
-        let video, particles = [], targets = [];
-        let handX = 0, handY = 0, isFist = false, isHandVisible = false;
-        let started = false;
-        const numParticles = 1200; // 高密度粒子
+<script>
+// ─── Global State ────────────────────────────────────────────────
+let mode = 0;           // 0 = rose / 1 = liminal
+let video;
+let particles = [];
+const NUM_PARTICLES = 900;
 
-        function initSystem() {
-            document.getElementById('start-mask').style.display = 'none';
-            document.getElementById('ui-layer').style.visibility = 'visible';
-            if (video) video.elt.play();
-            started = true;
-        }
+let handX = 0, handY = 0;
+let isFist = false;
+let isHandVisible = false;
 
-        function toggleMode() {
-            mode = 1 - mode;
-            createTargets();
-        }
+let roseTargets = [];
+let liminalTargets = [];
+let targetsReady = false;
 
-        function setup() {
-            let cnv = createCanvas(windowWidth, windowHeight);
-            cnv.style('display', 'block');
-            
-            video = createCapture(VIDEO);
-            video.size(640, 480);
-            video.hide();
-            
-            for (let i = 0; i < numParticles; i++) {
-                particles.push(new Particle());
+// ─── Mode Labels ─────────────────────────────────────────────────
+const MODE_INFO = [
+    {
+        label: "⊹ 玫瑰紋樣 Rose Pattern ⊹",
+        hint:  "✊ 握拳聚合花型 | 🖐 張手散開",
+        bg:    [150, 20, 50, 110],
+        glow:  [255, 150, 180],
+        core:  [255,  80, 120]
+    },
+    {
+        label: "失序邊境 .𖥔 ݁˖ The Liminal Veil .⋆",
+        hint:  "✊ 握拳凝字 | 🖐 張手逃散",
+        bg:    [0, 8, 20, 170],
+        glow:  [0, 255, 220],
+        core:  [200, 255, 255]
+    }
+];
+
+// ─── Toggle Mode ─────────────────────────────────────────────────
+function toggleMode() {
+    mode = (mode + 1) % 2;
+    document.getElementById('mode-label').innerText = MODE_INFO[mode].label;
+    document.getElementById('gesture-hint').innerText = MODE_INFO[mode].hint;
+    respawnParticles();
+}
+
+// ─── p5 setup ────────────────────────────────────────────────────
+function setup() {
+    createCanvas(windowWidth, windowHeight);
+    colorMode(RGB);
+
+    video = createCapture(VIDEO, () => {
+        initMediaPipe();
+    });
+    video.size(320, 240);
+    video.hide();
+}
+
+// ─── Generate target points ───────────────────────────────────────
+function buildTargets() {
+    roseTargets   = buildRoseTargets(NUM_PARTICLES);
+    liminalTargets = buildLiminalTargets(NUM_PARTICLES);
+    targetsReady = true;
+    respawnParticles();
+}
+
+// Mode 0 – multi-petal rose using polar rose curve + heart overlay
+function buildRoseTargets(n) {
+    let pts = [];
+    const cx = width / 2, cy = height / 2;
+
+    // Rose curve (rhodonea) petals
+    for (let i = 0; i < n * 0.6; i++) {
+        let t = map(i, 0, n * 0.6, 0, TWO_PI * 3);
+        let r = 130 * cos(3 * t);           // 3-petal rose
+        let x = cx + r * cos(t);
+        let y = cy + r * sin(t);
+        pts.push({ x, y });
+    }
+    // Heart shape fill
+    for (let i = 0; i < n * 0.4; i++) {
+        let t = map(i, 0, n * 0.4, 0, TWO_PI);
+        let sc = 10;
+        let hx = cx + sc * 16 * pow(sin(t), 3);
+        let hy = cy - sc * (13 * cos(t) - 5 * cos(2*t) - 2 * cos(3*t) - cos(4*t));
+        pts.push({ x: hx, y: hy });
+    }
+    return shuffleArr(pts);
+}
+
+// Mode 1 – ASCII art + text rendered via offscreen canvas
+function buildLiminalTargets(n) {
+    let pts = [];
+
+    // --- ASCII art lines (the rose ASCII from the request) ---
+    const ascii = [
+        "⊹  ⣤⣶⠿⢖⣢⣴⣶⣦⣤⣄",
+        " ⢸⡟⢁⣼⠟⣩⢤⣤⠤⣉⠻⣇  ˖",
+        "⢀⣾⣿⡈⡇⢸⡏⣼⣇⡑⢀⠇⣸⢆⢿⢸⣿⣦",
+        "⣸⣿⣿⡇⠁⣀⡘⠿⠿⠿⢣⡾⢏⣼⠈⣼⣿⣿",
+        "⣿⣿⣿⣄⠾⣿⣿⣿⣶⣶⣤⣶⣿⡟⠀⣿⣿⠏",
+        "⠈⠙⠿⣿⣦⡈⢿⣿⣿⣿⣿⡿⠋⣠⣾⣿⣷",
+        "  ⠻⣿⣿⣿⠟⠉",
+        "⁺⊹   ⠻⣿⣿⣿⠟⠉  ⊹"
+    ];
+
+    // Render ASCII to offscreen canvas
+    const og = document.createElement('canvas');
+    og.width = width; og.height = height;
+    const octx = og.getContext('2d');
+    octx.fillStyle = '#000';
+    octx.fillRect(0, 0, width, height);
+
+    // --- ASCII block ---
+    const fontSize = Math.min(width / 20, 22);
+    octx.font = `${fontSize}px "Courier New", monospace`;
+    octx.fillStyle = '#fff';
+    const lineH = fontSize * 1.3;
+    const totalH = ascii.length * lineH;
+    const startY = height / 2 - totalH / 2 - 40;
+    ascii.forEach((line, i) => {
+        const tw = octx.measureText(line).width;
+        octx.fillText(line, width/2 - tw/2, startY + i * lineH);
+    });
+
+    // --- "The Liminal Veil" text line ---
+    const bigSize = Math.min(width / 14, 32);
+    octx.font = `bold ${bigSize}px "Courier New", monospace`;
+    octx.fillStyle = '#fff';
+    const mainText = "The Liminal Veil";
+    const tw2 = octx.measureText(mainText).width;
+    octx.fillText(mainText, width/2 - tw2/2, startY + ascii.length * lineH + 30);
+
+    // --- Sub text ---
+    const subSize = Math.min(width / 22, 18);
+    octx.font = `${subSize}px "Courier New", monospace`;
+    const subText = "失序邊境 .𖥔 ˖ .⋆";
+    const tw3 = octx.measureText(subText).width;
+    octx.fillText(subText, width/2 - tw3/2, startY + ascii.length * lineH + 60);
+
+    // Sample bright pixels
+    const imgData = octx.getImageData(0, 0, width, height);
+    const pix = imgData.data;
+    const step = 4;
+    for (let x = 0; x < width; x += step) {
+        for (let y = 0; y < height; y += step) {
+            const idx = (x + y * width) * 4;
+            if (pix[idx] > 100) {
+                pts.push({ x, y });
             }
-            
-            initMediaPipe();
-            createTargets();
         }
+    }
 
-        function createTargets() {
-            targets = [];
-            let pg = createGraphics(width, height);
-            pg.background(0);
-            pg.fill(255);
-            pg.textAlign(CENTER, CENTER);
-            
-            if (mode === 1) {
-                pg.textSize(width * 0.09);
-                pg.textFont('Courier New');
-                pg.text("The Liminal Veil", width/2, height/2);
-            } else {
-                pg.translate(width/2, height/2);
-                for (let a = 0; a < TWO_PI; a += 0.02) {
-                    let r = width * 0.015;
-                    let x = r * 16 * pow(sin(a), 3);
-                    let y = -r * (13 * cos(a) - 5 * cos(2*a) - 2 * cos(3*a) - cos(4*a));
-                    pg.rect(x, y, 4, 4);
+    // Ensure exactly n targets by repeating or trimming
+    pts = shuffleArr(pts);
+    while (pts.length < n) {
+        pts = pts.concat(pts.slice(0, n - pts.length));
+    }
+    return pts.slice(0, n);
+}
+
+function shuffleArr(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
+}
+
+// ─── Spawn / respawn particles ────────────────────────────────────
+function respawnParticles() {
+    if (!targetsReady) return;
+    particles = [];
+    for (let i = 0; i < NUM_PARTICLES; i++) {
+        particles.push(new Particle(random(width), random(height), i));
+    }
+}
+
+// ─── MediaPipe ────────────────────────────────────────────────────
+function initMediaPipe() {
+    const handsModel = new Hands({
+        locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+    });
+    handsModel.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 0,
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+    });
+
+    handsModel.onResults(results => {
+        document.getElementById('loading-overlay').style.display = 'none';
+        if (!targetsReady) buildTargets();   // build once canvas size is known
+
+        if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+            isHandVisible = true;
+            const lm = results.multiHandLandmarks[0];
+            const wrist = lm[0];
+            // Mirror X for selfie view
+            handX = (1 - wrist.x) * width;
+            handY = wrist.y * height;
+
+            // Fist detection: check all 4 finger tips vs their MCP joints
+            // Finger tips: 8, 12, 16, 20 | MCP: 5, 9, 13, 17
+            const tips  = [8, 12, 16, 20];
+            const mcps  = [5,  9, 13, 17];
+            let foldCount = 0;
+            for (let i = 0; i < 4; i++) {
+                if (lm[tips[i]].y > lm[mcps[i]].y) foldCount++;
+            }
+            isFist = foldCount >= 3;
+        } else {
+            isHandVisible = false;
+            isFist = false;
+        }
+    });
+
+    async function loop() {
+        if (video.elt.readyState >= 2) {
+            await handsModel.send({ image: video.elt });
+        }
+        requestAnimationFrame(loop);
+    }
+    loop();
+}
+
+// ─── p5 draw ─────────────────────────────────────────────────────
+function draw() {
+    background(0);
+
+    // Camera feed with tinted overlay
+    if (video && video.elt.readyState >= 2) {
+        push();
+        translate(width, 0); scale(-1, 1);
+        tint(255, 200);
+        image(video, 0, 0, width, height);
+        noTint();
+        const bg = MODE_INFO[mode].bg;
+        fill(bg[0], bg[1], bg[2], bg[3]);
+        noStroke();
+        rect(0, 0, width, height);
+        pop();
+    }
+
+    // Particles
+    if (targetsReady) {
+        const targets = mode === 0 ? roseTargets : liminalTargets;
+        for (let i = 0; i < particles.length; i++) {
+            particles[i].update(targets[i], isFist, handX, handY);
+            particles[i].draw();
+        }
+    }
+
+    // Gesture indicator
+    if (isHandVisible) {
+        const col = isFist ? color(255, 80, 80, 160) : color(0, 255, 200, 140);
+        noFill(); stroke(col); strokeWeight(2);
+        ellipse(handX, handY, isFist ? 60 : 90, isFist ? 60 : 90);
+        noStroke();
+    }
+}
+
+// ─── Particle Class ───────────────────────────────────────────────
+class Particle {
+    constructor(x, y, idx) {
+        this.pos = createVector(x, y);
+        this.vel = createVector(random(-2, 2), random(-2, 2));
+        this.acc = createVector(0, 0);
+        this.idx = idx;
+        // Each particle has its own leisurely wander destination
+        this.wanderTarget = createVector(random(width), random(height));
+        this.wanderTimer = floor(random(60, 180));
+    }
+
+    update(target, fist, hx, hy) {
+        this.acc.set(0, 0);
+
+        if (fist) {
+            // ── SEEK target with arrival easing ──────────────────
+            const desired = p5.Vector.sub(createVector(target.x, target.y), this.pos);
+            const d = desired.mag();
+            const speed = d < 60 ? map(d, 0, 60, 0.5, 10) : 10;
+            desired.setMag(speed);
+            const steer = p5.Vector.sub(desired, this.vel);
+            steer.limit(0.9);
+            this.acc.add(steer);
+        } else {
+            // ── WANDER + FLEE hand ────────────────────────────────
+            // Flee from hand
+            if (isHandVisible) {
+                const toHand = p5.Vector.sub(this.pos, createVector(hx, hy));
+                const d = toHand.mag();
+                if (d < 180) {
+                    toHand.setMag(map(d, 0, 180, 12, 0));
+                    this.acc.add(toHand);
                 }
             }
-
-            pg.loadPixels();
-            let coords = [];
-            for (let x = 0; x < pg.width; x += 5) {
-                for (let y = 0; y < pg.height; y += 5) {
-                    let index = (x + y * pg.width) * 4;
-                    if (pg.pixels[index] > 128) coords.push(createVector(x, y));
-                }
+            // Wander towards random point
+            this.wanderTimer--;
+            if (this.wanderTimer <= 0) {
+                this.wanderTarget.set(random(width), random(height));
+                this.wanderTimer = floor(random(80, 200));
             }
-            
-            for (let i = 0; i < numParticles; i++) {
-                targets[i] = coords[i % coords.length] || createVector(random(width), random(height));
-            }
-            pg.remove();
+            const desired = p5.Vector.sub(this.wanderTarget, this.pos);
+            desired.setMag(2);
+            const steer = p5.Vector.sub(desired, this.vel);
+            steer.limit(0.15);
+            this.acc.add(steer);
         }
 
-        function draw() {
-            if (!started) return;
-            background(0);
+        this.vel.add(this.acc);
+        this.vel.limit(fist ? 12 : 7);
+        this.pos.add(this.vel);
 
-            // 背景影片
-            push();
-            translate(width, 0); scale(-1, 1);
-            tint(255, 60); 
-            image(video, 0, 0, width, height);
-            pop();
+        // Wrap edges
+        if (this.pos.x < -5)      this.pos.x = width + 5;
+        if (this.pos.x > width+5) this.pos.x = -5;
+        if (this.pos.y < -5)      this.pos.y = height + 5;
+        if (this.pos.y > height+5) this.pos.y = -5;
+    }
 
-            document.getElementById('status').innerText = isFist ? "[ STATUS: CONVERGING ]" : "[ STATUS: DISORDERLY ]";
+    draw() {
+        const info = MODE_INFO[mode];
+        const speed = this.vel.mag();
+        const alpha = map(speed, 0, 12, 160, 255);
 
-            // 繪製粒子 (增加發光感)
-            drawingContext.shadowBlur = 12;
-            drawingContext.shadowColor = mode === 1 ? '#00ffdc' : '#ff3a6d';
+        // Glow
+        noStroke();
+        fill(info.glow[0], info.glow[1], info.glow[2], 60);
+        ellipse(this.pos.x, this.pos.y, 7, 7);
 
-            for (let i = 0; i < particles.length; i++) {
-                let p = particles[i];
-                if (isHandVisible) {
-                    if (isFist) p.applyForce(p.arrive(targets[i]));
-                    else p.applyForce(p.flee(createVector(handX, handY)));
-                } else {
-                    p.wander();
-                }
-                p.update();
-                p.show();
-            }
-        }
+        // Core
+        fill(info.core[0], info.core[1], info.core[2], alpha);
+        ellipse(this.pos.x, this.pos.y, 2.5, 2.5);
+    }
+}
 
-        class Particle {
-            constructor() {
-                this.pos = createVector(random(width), random(height));
-                this.vel = p5.Vector.random2D();
-                this.acc = createVector(0, 0);
-                this.maxSpeed = 12;
-                this.maxForce = 0.8;
-            }
-
-            applyForce(f) { this.acc.add(f); }
-
-            arrive(target) {
-                let desired = p5.Vector.sub(target, this.pos);
-                let d = desired.mag();
-                let speed = d < 100 ? map(d, 0, 100, 0, this.maxSpeed) : this.maxSpeed;
-                desired.setMag(speed);
-                let steer = p5.Vector.sub(desired, this.vel);
-                return steer.limit(this.maxForce);
-            }
-
-            flee(target) {
-                let desired = p5.Vector.sub(this.pos, target);
-                if (desired.mag() < 130) {
-                    desired.setMag(this.maxSpeed);
-                    let steer = p5.Vector.sub(desired, this.vel);
-                    return steer.limit(this.maxForce * 1.5);
-                }
-                return createVector(0, 0);
-            }
-
-            wander() { this.acc.add(p5.Vector.random2D().mult(0.15)); }
-
-            update() {
-                this.vel.add(this.acc);
-                this.vel.limit(this.maxSpeed);
-                this.pos.add(this.vel);
-                this.acc.mult(0);
-                this.vel.mult(0.94);
-            }
-
-            show() {
-                noStroke();
-                fill(mode === 1 ? '#00ffdc' : '#ff3a6d');
-                if (mode === 1) rect(this.pos.x, this.pos.y, 2, 2);
-                else ellipse(this.pos.x, this.pos.y, 3, 3);
-            }
-        }
-
-        function initMediaPipe() {
-            const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-            hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
-            hands.onResults(results => {
-                if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
-                    isHandVisible = true;
-                    let lm = results.multiHandLandmarks[0];
-                    handX = (1 - lm[0].x) * width;
-                    handY = lm[0].y * height;
-                    isFist = dist(lm[8].x, lm[8].y, lm[0].x, lm[0].y) < 0.12;
-                } else {
-                    isHandVisible = false;
-                }
-            });
-            const camera = new Camera(video.elt, {
-                onFrame: async () => { if (started) await hands.send({image: video.elt}); },
-                width: 640, height: 480
-            });
-            camera.start();
-        }
-
-        function windowResized() { resizeCanvas(windowWidth, windowHeight); createTargets(); }
-    </script>
+function windowResized() {
+    resizeCanvas(windowWidth, windowHeight);
+    // Rebuild targets for new canvas size
+    if (targetsReady) {
+        buildTargets();
+    }
+}
+</script>
 </body>
 </html>
