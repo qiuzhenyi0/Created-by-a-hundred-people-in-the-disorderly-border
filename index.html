@@ -1,3 +1,23 @@
-<script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
-<script src="https://unpkg.com/ml5@latest/dist/ml5.min.js"></script>
-<script src="sketch.js"></script>
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>失序邊境.𖥔 ݁˖𝕋𝕙𝕖 𝕃𝕚𝕞𝕚𝕟𝕒𝕝 𝕍𝕖𝕚𝕝.⋆百人紀念- 手勢偵測</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.js"></script>
+    <script src="https://unpkg.com/ml5@latest/dist/ml5.min.js"></script>
+    <style>
+        body { margin: 0; padding: 0; overflow: hidden; background-color: #000; }
+        canvas { display: block; }
+        #status {
+            position: absolute; bottom: 10px; left: 10px;
+            color: white; font-family: monospace; background: rgba(0,0,0,0.5);
+            padding: 5px; border-radius: 4px; pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">正在初始化模型...</div>
+    <script src="sketch.js"></script>
+</body>
+</html>
