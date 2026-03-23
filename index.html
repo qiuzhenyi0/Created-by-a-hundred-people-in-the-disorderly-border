@@ -3,94 +3,99 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>The Liminal Veil - Final</title>
+    <title>The Liminal Veil - Project Zero</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
     <style>
-        body, html { margin: 0; padding: 0; background-color: #000; overflow: hidden; }
+        body, html { margin: 0; padding: 0; background-color: #000; overflow: hidden; touch-action: none; }
         #ui-layer { position: absolute; top: 0; left: 0; width: 100%; z-index: 10; padding: 25px; pointer-events: none; }
         .btn { 
-            pointer-events: auto; padding: 10px 20px; border-radius: 5px; 
-            border: 1px solid rgba(255,255,255,0.3); background: rgba(0,0,0,0.5); 
-            color: white; font-family: monospace; cursor: pointer;
+            pointer-events: auto; padding: 12px 20px; border-radius: 2px; 
+            border: 1px solid #00ffdc; background: rgba(0,0,0,0.8); 
+            color: #00ffdc; font-family: monospace; cursor: pointer; font-size: 14px;
         }
-        #mode-text { margin-top: 15px; color: white; font-family: 'Courier New', Courier, monospace; letter-spacing: 2px; }
+        #start-mask {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: #000; color: #00ffdc; z-index: 100;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            font-family: monospace; cursor: pointer;
+        }
     </style>
 </head>
 <body>
+    <div id="start-mask" onclick="startSystem()">
+        <div style="font-size: 24px; margin-bottom: 20px;">[ PROJECT ZERO ]</div>
+        <div class="btn">INITIALIZE SYSTEM</div>
+    </div>
+
     <div id="ui-layer">
-        <button class="btn" onclick="toggleMode()">SYSTEM_TOGGLE</button>
-        <div id="mode-text">INITIALIZING...</div>
+        <button class="btn" onclick="toggleMode()">MODE_SWITCH</button>
+        <div id="status" style="color: white; font-family: monospace; margin-top: 10px; font-size: 16px;">[ SYSTEM_IDLE ]</div>
     </div>
 
     <script>
-        let mode = 0; // 0: 玫瑰, 1: 失序邊境
+        let mode = 1; // 1: 文字, 0: 玫瑰
         let video;
         let particles = [];
         let targets = [];
-        const numParticles = 1200; // 增加數量讓字體清晰
+        const numParticles = 1000;
         let handX = 0, handY = 0, isFist = false, isHandVisible = false;
+        let started = false;
+
+        function startSystem() {
+            document.getElementById('start-mask').style.display = 'none';
+            userStartAudio(); // 確保音訊/錄影權限啟動
+            started = true;
+            if (video) video.loop();
+        }
 
         function toggleMode() {
-            mode = (mode + 1) % 2;
-            createTargets(); // 切換模式時重新計算目標點
+            mode = 1 - mode;
+            createTargets();
         }
 
         function setup() {
             createCanvas(windowWidth, windowHeight);
             video = createCapture(VIDEO);
-            video.size(320, 240);
+            video.size(640, 480);
             video.hide();
             
-            initMediaPipe();
-            
-            // 初始化粒子
             for (let i = 0; i < numParticles; i++) {
                 particles.push(new Particle());
             }
+            initMediaPipe();
             createTargets();
         }
 
-        // 核心：創建形狀/文字的目標座標
         function createTargets() {
             targets = [];
             let pg = createGraphics(width, height);
-            pg.pixelDensity(1);
             pg.background(0);
             pg.fill(255);
             pg.textAlign(CENTER, CENTER);
             
             if (mode === 1) {
-                // 失序邊境：文字模式
-                pg.textSize(width * 0.08);
-                pg.textFont('monospace');
+                pg.textSize(width * 0.1);
                 pg.text("The Liminal Veil", width/2, height/2);
             } else {
-                // 玫瑰模式：心形/花朵
                 pg.translate(width/2, height/2);
-                pg.beginShape();
                 for (let a = 0; a < TWO_PI; a += 0.01) {
-                    let r = width * 0.015;
+                    let r = width * 0.012;
                     let x = r * 16 * pow(sin(a), 3);
                     let y = -r * (13 * cos(a) - 5 * cos(2*a) - 2 * cos(3*a) - cos(4*a));
-                    pg.vertex(x, y);
+                    pg.rect(x, y, 2, 2);
                 }
-                pg.endShape(CLOSE);
             }
 
             pg.loadPixels();
-            // 從畫布中提取白色像素點作為目標
             let coords = [];
-            for (let x = 0; x < pg.width; x += 4) {
-                for (let y = 0; y < pg.height; y += 4) {
-                    let index = (x + y * pg.width) * 4;
-                    if (pg.pixels[index] > 128) {
-                        coords.push(createVector(x, y));
-                    }
+            for (let x = 0; x < pg.width; x += 5) {
+                for (let y = 0; y < pg.height; y += 5) {
+                    let i = (x + y * pg.width) * 4;
+                    if (pg.pixels[i] > 128) coords.push(createVector(x, y));
                 }
             }
-
-            // 將提取出的座標分配給粒子
             for (let i = 0; i < numParticles; i++) {
                 targets[i] = coords[i % coords.length] || createVector(random(width), random(height));
             }
@@ -98,30 +103,31 @@
         }
 
         function draw() {
+            if (!started) return;
             background(0);
 
-            // 背景影片
+            // 背景影片層
             push();
             translate(width, 0); scale(-1, 1);
-            tint(255, 120); // 增加透明度
+            tint(255, 80);
             image(video, 0, 0, width, height);
             pop();
 
-            document.getElementById('mode-text').innerText = mode === 0 ? "⊹ ROSE_PATTERN ⊹" : "𖥔 THE_LIMINAL_VEIL 𖥔";
+            document.getElementById('status').innerText = isFist ? "[ STATUS: CONVERGING ]" : "[ STATUS: DISORDERLY ]";
 
-            // 粒子邏輯
+            // 粒子繪製核心
+            // 使用 drawingContext 增加發光感 (模擬圖1)
+            drawingContext.shadowBlur = 10;
+            drawingContext.shadowColor = mode === 1 ? '#00ffdc' : '#ff4d6d';
+
             for (let i = 0; i < particles.length; i++) {
                 let p = particles[i];
-                let t = targets[i];
-
-                if (isHandVisible && isFist) {
-                    p.follow(t); // 握拳時：匯聚成形
-                } else if (isHandVisible && !isFist) {
-                    p.flee(createVector(handX, handY)); // 張手時：繞過手掌
+                if (isHandVisible) {
+                    if (isFist) p.applyForce(p.arrive(targets[i])); // 握拳匯聚
+                    else p.applyForce(p.flee(createVector(handX, handY))); // 張手逃逸
                 } else {
-                    p.wander(); // 無手時：自由漂浮
+                    p.wander();
                 }
-                
                 p.update();
                 p.show();
             }
@@ -132,33 +138,33 @@
                 this.pos = createVector(random(width), random(height));
                 this.vel = p5.Vector.random2D();
                 this.acc = createVector(0, 0);
-                this.maxSpeed = 12;
-                this.maxForce = 0.8;
+                this.maxSpeed = 10;
+                this.maxForce = 0.6;
             }
 
-            follow(target) {
-                let force = p5.Vector.sub(target, this.pos);
-                let d = force.mag();
-                let speed = this.maxSpeed;
-                if (d < 100) speed = map(d, 0, 100, 0, this.maxSpeed);
-                force.setMag(speed);
-                let steer = p5.Vector.sub(force, this.vel);
-                steer.limit(this.maxForce);
-                this.acc.add(steer);
+            applyForce(f) { this.acc.add(f); }
+
+            arrive(target) {
+                let desired = p5.Vector.sub(target, this.pos);
+                let d = desired.mag();
+                let speed = d < 100 ? map(d, 0, 100, 0, this.maxSpeed) : this.maxSpeed;
+                desired.setMag(speed);
+                let steer = p5.Vector.sub(desired, this.vel);
+                return steer.limit(this.maxForce);
             }
 
             flee(target) {
-                let force = p5.Vector.sub(this.pos, target);
-                if (force.mag() < 150) {
-                    force.setMag(this.maxSpeed);
-                    let steer = p5.Vector.sub(force, this.vel);
-                    steer.limit(this.maxForce * 2);
-                    this.acc.add(steer);
+                let desired = p5.Vector.sub(this.pos, target);
+                if (desired.mag() < 120) {
+                    desired.setMag(this.maxSpeed);
+                    let steer = p5.Vector.sub(desired, this.vel);
+                    return steer.limit(this.maxForce * 1.5);
                 }
+                return createVector(0, 0);
             }
 
             wander() {
-                this.acc.add(p5.Vector.random2D().mult(0.2));
+                this.acc.add(p5.Vector.random2D().mult(0.1));
             }
 
             update() {
@@ -166,40 +172,39 @@
                 this.vel.limit(this.maxSpeed);
                 this.pos.add(this.vel);
                 this.acc.mult(0);
-                this.vel.mult(0.95); // 增加摩擦力，讓字體更穩
+                this.vel.mult(0.92);
             }
 
             show() {
                 noStroke();
-                if (mode === 1) {
-                    fill(0, 255, 220, 200); // 青色 (失序邊境)
-                    rect(this.pos.x, this.pos.y, 2, 2);
-                } else {
-                    fill(255, 100, 130, 200); // 粉紅 (玫瑰)
-                    ellipse(this.pos.x, this.pos.y, 3);
-                }
+                fill(mode === 1 ? '#00ffdc' : '#ff4d6d');
+                if (mode === 1) rect(this.pos.x, this.pos.y, 2.5, 2.5);
+                else ellipse(this.pos.x, this.pos.y, 3.5);
             }
         }
 
         function initMediaPipe() {
             const hands = new Hands({locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`});
-            hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
+            hands.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.6, minTrackingConfidence: 0.6 });
             hands.onResults(results => {
                 if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
                     isHandVisible = true;
-                    let wrist = results.multiHandLandmarks[0][0];
-                    let index = results.multiHandLandmarks[0][8];
-                    handX = (1 - wrist.x) * width;
-                    handY = wrist.y * height;
-                    isFist = dist(wrist.x, wrist.y, index.x, index.y) < 0.12;
+                    let lm = results.multiHandLandmarks[0];
+                    handX = (1 - lm[0].x) * width;
+                    handY = lm[0].y * height;
+                    // 偵測握拳：食指尖到手腕距離
+                    isFist = dist(lm[8].x, lm[8].y, lm[0].x, lm[0].y) < 0.12;
                 } else {
                     isHandVisible = false;
+                    isFist = false;
                 }
             });
-            const camera = new Camera(video.elt, { onFrame: async () => { await hands.send({image: video.elt}); } });
+            const camera = new Camera(video.elt, {
+                onFrame: async () => { if (started) await hands.send({image: video.elt}); },
+                width: 640, height: 480
+            });
             camera.start();
         }
-
         function windowResized() { resizeCanvas(windowWidth, windowHeight); createTargets(); }
     </script>
 </body>
