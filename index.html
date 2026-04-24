@@ -163,7 +163,7 @@ body {
 
 <div id="ui">
   <div id="mode-dot"></div>
-  <div id="status-badge">✋ 舉起手開始</div>
+  <div id="status-badge"> 舉起手開始</div>
 </div>
 
 <button id="clear-btn">清除 Clear</button>
@@ -186,8 +186,8 @@ body {
   </div>
   <div class="s-bot">
     <div class="s-desc">
-      ☝️ 食指移動<br>密集粒子留下<em>虛線</em>軌跡<br><br>
-      🤏 拇指＋食指捏合<br>留下<em>實線</em>軌跡
+       食指移動<br>密集粒子留下<em>虛線</em>軌跡<br><br>
+       拇指＋食指捏合<br>留下<em>實線</em>軌跡
     </div>
     <button id="start-btn">開啟鏡頭 ↗</button>
   </div>
@@ -342,13 +342,13 @@ function onResults(results) {
 
 function setUI(mode) {
   if (mode === 'draw') {
-    badge.textContent = '🤏 捏合中 · 繪製實線';
+    badge.textContent = ' 捏合中 · 繪製實線';
     badge.classList.add('draw'); dot.classList.add('draw');
   } else if (mode === 'hover') {
-    badge.textContent = '☝️ 食指追蹤 · 虛線粒子';
+    badge.textContent = ' 食指追蹤 · 虛線粒子';
     badge.classList.remove('draw'); dot.classList.remove('draw');
   } else {
-    badge.textContent = '✋ 舉起手開始';
+    badge.textContent = ' 舉起手開始';
     badge.classList.remove('draw'); dot.classList.remove('draw');
   }
 }
