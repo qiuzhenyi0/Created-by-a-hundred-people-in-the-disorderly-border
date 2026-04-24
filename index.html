@@ -3,10 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
-<title>粒子軌跡</title>
+<title>粒子軌跡 · MediaPipe</title>
+<!-- MediaPipe Hands -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
-
 :root {
   --brown:    #5c3a3a;
   --brown-lt: #7a5050;
@@ -14,448 +16,422 @@
   --blue-dk:  #7aabb5;
   --cream:    #e8dfd0;
 }
-
 body {
   background: var(--cream);
   font-family: Georgia, serif;
   overflow: hidden;
   width: 100vw; height: 100vh;
-  cursor: none;
 }
 
+/* mirrored camera feed */
 #camera-bg {
   position: fixed; inset: 0;
   width: 100%; height: 100%;
   object-fit: cover;
-  z-index: 0; display: none;
+  z-index: 0;
+  transform: scaleX(-1);
+  display: none;
 }
 
 #canvas {
   position: fixed; inset: 0;
   z-index: 10;
-  touch-action: none;
+  /* canvas is drawn in mirrored space too */
 }
 
+/* ── UI ── */
 #ui {
   position: fixed; inset: 0;
   z-index: 20; pointer-events: none;
 }
-
 #status-badge {
-  position: absolute;
-  top: 28px; left: 50%;
+  position: absolute; top: 28px; left: 50%;
   transform: translateX(-50%);
-  background: var(--brown);
-  color: var(--cream);
-  font-size: 11px;
-  letter-spacing: .18em;
-  text-transform: uppercase;
-  padding: 7px 20px;
-  border-radius: 20px;
-  border: 1.5px solid var(--brown-lt);
-  white-space: nowrap;
-  transition: background .35s, color .35s, border-color .35s;
+  background: var(--brown); color: var(--cream);
+  font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
+  padding: 7px 20px; border-radius: 20px;
+  border: 1.5px solid var(--brown-lt); white-space: nowrap;
+  transition: background .3s, color .3s, border-color .3s;
 }
-#status-badge.on {
-  background: var(--blue-dk);
-  border-color: var(--blue);
-  color: var(--brown);
+#status-badge.draw {
+  background: var(--blue-dk); border-color: var(--blue); color: var(--brown);
 }
-
 #mode-dot {
-  position: absolute;
-  top: 32px; left: 32px;
-  width: 10px; height: 10px;
-  border-radius: 50%;
-  background: var(--blue);
-  box-shadow: 0 0 12px var(--blue);
+  position: absolute; top: 32px; left: 32px;
+  width: 10px; height: 10px; border-radius: 50%;
+  background: var(--blue); box-shadow: 0 0 12px var(--blue);
   animation: pulse 2s ease-in-out infinite;
 }
-#mode-dot.on {
-  background: var(--brown);
-  box-shadow: 0 0 12px var(--brown-lt);
-  animation: none;
+#mode-dot.draw {
+  background: var(--brown); box-shadow: 0 0 12px var(--brown-lt); animation: none;
 }
 @keyframes pulse {
   0%,100%{ opacity:1; transform:scale(1); }
   50%    { opacity:.5; transform:scale(.7); }
 }
-
 #clear-btn {
-  display: none;
-  position: fixed; bottom: 36px; right: 28px;
-  z-index: 20;
-  background: var(--brown); color: var(--cream);
-  border: none; border-radius: 50px;
-  padding: 11px 24px;
-  font: 11px/1 Georgia, serif;
-  letter-spacing: .15em; text-transform: uppercase;
-  cursor: pointer;
+  display: none; position: fixed; bottom: 36px; right: 28px; z-index: 20;
+  background: var(--brown); color: var(--cream); border: none; border-radius: 50px;
+  padding: 11px 24px; font: 11px/1 Georgia,serif; letter-spacing:.15em;
+  text-transform: uppercase; cursor: pointer;
   box-shadow: 0 4px 16px rgba(92,58,58,.25);
   transition: background .2s, transform .2s;
 }
 #clear-btn:hover { background: var(--brown-lt); transform: translateY(-2px); }
 
-#legend {
+/* ── finger cursor ── */
+#finger-cursor {
+  position: fixed; z-index: 25; pointer-events: none;
+  width: 18px; height: 18px;
+  border-radius: 50%;
+  border: 2px solid var(--blue-dk);
+  background: rgba(122,171,181,.25);
+  transform: translate(-50%, -50%);
+  transition: width .1s, height .1s, background .1s, border-color .1s;
   display: none;
-  position: fixed; bottom: 36px; left: 28px;
+}
+#finger-cursor.draw {
+  width: 14px; height: 14px;
+  border-color: var(--brown-lt);
+  background: rgba(92,58,58,.3);
+}
+
+/* ── legend ── */
+#legend {
+  display: none; position: fixed; bottom: 36px; left: 28px;
   z-index: 20; pointer-events: none;
   flex-direction: column; gap: 8px;
 }
-.leg {
-  display: flex; align-items: center; gap: 10px;
-  font: 10px/1 Georgia, serif;
-  letter-spacing: .12em; text-transform: uppercase;
-  color: var(--brown);
-}
+.leg { display:flex; align-items:center; gap:10px;
+  font: 10px/1 Georgia,serif; letter-spacing:.12em;
+  text-transform: uppercase; color: var(--brown); }
 .leg-line { width: 28px; height: 2px; }
-.leg-dash {
-  background: repeating-linear-gradient(
-    90deg, var(--blue-dk) 0 4px, transparent 4px 8px);
-}
+.leg-dash { background: repeating-linear-gradient(90deg, var(--blue-dk) 0 4px, transparent 4px 8px); }
 .leg-solid { background: var(--brown); }
 
-/* ── Start screen ── */
+/* ── start screen ── */
 #start-screen {
-  position: fixed; inset: 0; z-index: 30;
-  background: var(--cream);
-  display: flex; flex-direction: column;
-  align-items: center; justify-content: center;
+  position: fixed; inset: 0; z-index: 30; background: var(--cream);
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
   transition: opacity .8s;
 }
-#start-screen.hidden { opacity: 0; pointer-events: none; }
-
+#start-screen.hidden { opacity:0; pointer-events:none; }
 .s-top {
-  background: var(--brown);
-  border-radius: 24px 24px 0 0;
-  padding: 48px 44px 36px;
-  text-align: center;
-  width: min(360px, 88vw);
+  background: var(--brown); border-radius: 24px 24px 0 0;
+  padding: 48px 44px 36px; text-align: center; width: min(360px, 88vw);
 }
-.s-label {
-  font-size: 11px; letter-spacing: .22em;
-  color: var(--blue); text-transform: uppercase; margin-bottom: 16px;
-}
-.s-title {
-  color: var(--cream);
-  font-size: clamp(26px, 7vw, 38px);
-  line-height: 1.2; font-weight: normal; margin-bottom: 8px;
-}
-.s-sub { color: var(--blue); font-size: 13px; letter-spacing: .06em; opacity: .85; }
-
+.s-label { font-size:11px; letter-spacing:.22em; color:var(--blue); text-transform:uppercase; margin-bottom:16px; }
+.s-title { color:var(--cream); font-size:clamp(26px,7vw,38px); line-height:1.2; font-weight:normal; margin-bottom:8px; }
+.s-sub   { color:var(--blue); font-size:13px; opacity:.85; }
 .s-bot {
-  background: var(--blue);
-  border-radius: 0 0 24px 24px;
-  padding: 32px 44px 44px;
-  width: min(360px, 88vw);
-  display: flex; flex-direction: column;
-  align-items: center; gap: 20px;
+  background: var(--blue); border-radius: 0 0 24px 24px;
+  padding: 32px 44px 44px; width: min(360px, 88vw);
+  display: flex; flex-direction: column; align-items: center; gap: 20px;
 }
-.s-desc {
-  color: var(--brown); font-size: 13px;
-  line-height: 1.8; text-align: center; letter-spacing: .04em;
-}
-
+.s-desc { color:var(--brown); font-size:13px; line-height:1.8; text-align:center; }
 #start-btn {
   pointer-events: all; cursor: pointer;
-  background: var(--brown); color: var(--cream);
-  border: none; border-radius: 50px;
-  padding: 14px 44px;
-  font: 13px/1 Georgia, serif;
-  letter-spacing: .2em; text-transform: uppercase;
-  box-shadow: 0 4px 20px rgba(92,58,58,.3);
-  transition: background .2s, transform .2s, box-shadow .2s;
+  background: var(--brown); color: var(--cream); border: none; border-radius: 50px;
+  padding: 14px 44px; font: 13px/1 Georgia,serif; letter-spacing:.2em;
+  text-transform: uppercase; box-shadow: 0 4px 20px rgba(92,58,58,.3);
+  transition: background .2s, transform .2s;
 }
-#start-btn:hover {
-  background: var(--brown-lt);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 24px rgba(92,58,58,.4);
+#start-btn:hover { background: var(--brown-lt); transform: translateY(-2px); }
+
+/* ── loading overlay ── */
+#loading {
+  display: none; position: fixed; inset: 0; z-index: 28;
+  background: var(--cream); flex-direction: column;
+  align-items: center; justify-content: center; gap: 16px;
 }
+#loading.show { display: flex; }
+.spinner {
+  width: 36px; height: 36px; border-radius: 50%;
+  border: 3px solid var(--blue-dk);
+  border-top-color: transparent;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loading-text { color: var(--brown); font-size: 13px; letter-spacing: .1em; }
 </style>
 </head>
 <body>
 
 <video id="camera-bg" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
+<div id="finger-cursor"></div>
 
 <div id="ui">
   <div id="mode-dot"></div>
-  <div id="status-badge">懸停 · 粒子飄散</div>
+  <div id="status-badge">✋ 舉起手開始</div>
 </div>
 
 <button id="clear-btn">清除 Clear</button>
 
 <div id="legend">
-  <div class="leg"><div class="leg-line leg-dash"></div><span>懸停虛線</span></div>
-  <div class="leg"><div class="leg-line leg-solid"></div><span>觸碰實線</span></div>
+  <div class="leg"><div class="leg-line leg-dash"></div><span>食指懸停虛線</span></div>
+  <div class="leg"><div class="leg-line leg-solid"></div><span>捏合繪製實線</span></div>
+</div>
+
+<div id="loading">
+  <div class="spinner"></div>
+  <div class="loading-text">載入手部偵測模型…</div>
 </div>
 
 <div id="start-screen">
   <div class="s-top">
     <div class="s-label">Coloring · 2026</div>
     <div class="s-title">粒子軌跡<br>繪製器</div>
-    <div class="s-sub">Particle Trail Drawing</div>
+    <div class="s-sub">MediaPipe Hands</div>
   </div>
   <div class="s-bot">
     <div class="s-desc">
-      未觸碰螢幕時<br>密集粒子留下<em>虛線</em>軌跡<br><br>
-      觸碰螢幕繪製時<br>留下<em>實線</em>軌跡
+      ☝️ 食指移動<br>密集粒子留下<em>虛線</em>軌跡<br><br>
+      🤏 拇指＋食指捏合<br>留下<em>實線</em>軌跡
     </div>
-    <button id="start-btn">開啟相機 ↗</button>
+    <button id="start-btn">開啟鏡頭 ↗</button>
   </div>
 </div>
 
 <script>
-/* ── colours ── */
-const C = {
-  brown:   '#5c3a3a',
-  brownLt: '#8a6060',
-  blueDk:  '#7aabb5',
-};
+/* ─── colours ─── */
+const C = { brown:'#5c3a3a', brownLt:'#8a6060', blueDk:'#7aabb5' };
 
-/* ── canvas ── */
+/* ─── canvas ─── */
 const canvas = document.getElementById('canvas');
 const ctx    = canvas.getContext('2d');
-
-function setSize() {
-  canvas.width  = window.innerWidth;
-  canvas.height = window.innerHeight;
-}
+function setSize() { canvas.width = innerWidth; canvas.height = innerHeight; }
 setSize();
+window.addEventListener('resize', () => { setSize(); drawSolid(false); });
 
-window.addEventListener('resize', () => {
-  setSize();
-  // Redraw only persistent solid lines after canvas reset
-  drawSolid(false);   // pass false = skip in-progress stroke
-});
+/* ─── DOM ─── */
+const startScreen  = document.getElementById('start-screen');
+const startBtn     = document.getElementById('start-btn');
+const clearBtn     = document.getElementById('clear-btn');
+const legendEl     = document.getElementById('legend');
+const badge        = document.getElementById('status-badge');
+const dot          = document.getElementById('mode-dot');
+const cameraBg     = document.getElementById('camera-bg');
+const fingerCursor = document.getElementById('finger-cursor');
+const loadingEl    = document.getElementById('loading');
 
-/* ── state ── */
-let loopRunning = false;
-let isTouching  = false;
-let pointerPos  = null;   // {x, y} — last known pointer position
+/* ─── state ─── */
+let isPinching  = false;
+let prevPinch   = false;
+let fingerPos   = null;   // {x, y} in screen coords (mirrored)
+let prevFinger  = null;
 
-// Particles
-const particles = [];
+const particles  = [];
+const driftDots  = [];   // {x, y, age}
+const DRIFT_LIFE = 100;
 
-// Hover trail: list of segments. Each segment is a list of {x, y, age}.
-// New segment created whenever pointer re-enters or jumps far.
-const hoverSegs  = [];
-const FADE_FRAMES = 90;
+const solidLines = [];
+let   solidPath  = [];
 
-// Solid strokes
-const solidLines = [];   // completed: [ [{x,y},…], … ]
-let   solidPath  = [];   // in-progress: [{x,y},…]
+const PINCH_THRESHOLD = 0.07;  // normalised distance between thumb tip & index tip
 
-/* ── DOM ── */
-const startScreen = document.getElementById('start-screen');
-const startBtn    = document.getElementById('start-btn');
-const clearBtn    = document.getElementById('clear-btn');
-const legendEl    = document.getElementById('legend');
-const badge       = document.getElementById('status-badge');
-const dot         = document.getElementById('mode-dot');
-const cameraBg    = document.getElementById('camera-bg');
-
-/* ── start button ── */
+/* ─── start ─── */
 startBtn.addEventListener('click', async () => {
-  try {
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'environment' }, audio: false
-    });
-    cameraBg.srcObject = stream;
-    cameraBg.style.display = 'block';
-  } catch (_) { /* no camera — cream bg */ }
-
   startScreen.classList.add('hidden');
-  clearBtn.style.display = 'block';
-  legendEl.style.display = 'flex';
+  loadingEl.classList.add('show');
   setTimeout(() => { startScreen.style.display = 'none'; }, 900);
-
-  if (!loopRunning) { loopRunning = true; requestAnimationFrame(loop); }
+  await initMediaPipe();
 });
 
-/* ── clear button ── */
 clearBtn.addEventListener('click', () => {
-  particles.length  = 0;
-  hoverSegs.length  = 0;
-  solidLines.length = 0;
-  solidPath.length  = 0;
+  particles.length = driftDots.length = solidLines.length = solidPath.length = 0;
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 });
 
-/* ── pointer events ── */
-canvas.addEventListener('pointerdown', e => {
-  e.preventDefault();
-  isTouching = true;
-  pointerPos = { x: e.clientX, y: e.clientY };
-  solidPath  = [{ x: e.clientX, y: e.clientY }];
-  setUI(true);
-});
+/* ─── MediaPipe init ─── */
+async function initMediaPipe() {
+  const hands = new Hands({
+    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+  });
+  hands.setOptions({
+    maxNumHands: 1,
+    modelComplexity: 1,
+    minDetectionConfidence: 0.7,
+    minTrackingConfidence: 0.6
+  });
+  hands.onResults(onResults);
 
-canvas.addEventListener('pointermove', e => {
-  e.preventDefault();
-  const x = e.clientX, y = e.clientY;
-
-  if (isTouching) {
-    // Solid mode — just collect points
-    pointerPos = { x, y };
-    solidPath.push({ x, y });
+  // Get camera stream (front camera)
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
+      audio: false
+    });
+  } catch(e) {
+    loadingEl.querySelector('.loading-text').textContent = '無法存取鏡頭';
     return;
   }
 
-  // Hover mode
-  const prev = pointerPos;
-  pointerPos = { x, y };
+  cameraBg.srcObject = stream;
+  cameraBg.style.display = 'block';
 
-  // Skip if not actually moved
-  if (prev && Math.hypot(x - prev.x, y - prev.y) < 0.5) return;
+  // Use MediaPipe Camera utility to pump frames into Hands
+  const camera = new Camera(cameraBg, {
+    onFrame: async () => { await hands.send({ image: cameraBg }); },
+    width: 640, height: 480
+  });
+  await camera.start();
 
-  // Start a new segment when:
-  //   - first ever point, OR
-  //   - pointer was gone (prev null), OR
-  //   - pointer jumped far (teleported)
-  const gap = !prev || Math.hypot(x - prev.x, y - prev.y) > 60;
-  if (hoverSegs.length === 0 || gap) {
-    hoverSegs.push([]);
+  loadingEl.classList.remove('show');
+  clearBtn.style.display = 'block';
+  legendEl.style.display = 'flex';
+  requestAnimationFrame(loop);
+}
+
+/* ─── MediaPipe results ─── */
+function onResults(results) {
+  if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
+    fingerPos  = null;
+    isPinching = false;
+    setUI('idle');
+    fingerCursor.style.display = 'none';
+    return;
   }
 
-  hoverSegs[hoverSegs.length - 1].push({ x, y, age: 0 });
+  const lm = results.multiHandLandmarks[0];
+  // Landmark indices: 4 = thumb tip, 8 = index tip
+  const thumb = lm[4], index = lm[8];
 
-  // Spawn particles
-  for (let i = 0; i < 6; i++) particles.push(new Particle(x, y));
-});
+  // Mirror X because video is CSS-mirrored (scaleX(-1))
+  const ix = (1 - index.x) * innerWidth;
+  const iy = index.y * innerHeight;
 
-canvas.addEventListener('pointerup',     endStroke);
-canvas.addEventListener('pointercancel', endStroke);
+  // Pinch = distance between thumb tip and index tip in normalised space
+  const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
+  isPinching = dist < PINCH_THRESHOLD;
 
-// When pointer leaves canvas, stop solid stroke but keep hover pos
-canvas.addEventListener('pointerleave', () => {
-  endStroke();
-  // Null out pointer so we start a fresh hover segment on re-entry
-  pointerPos = null;
-});
+  prevFinger = fingerPos ? { ...fingerPos } : null;
+  fingerPos  = { x: ix, y: iy };
 
-function endStroke() {
-  if (!isTouching) return;
-  isTouching = false;
-  if (solidPath.length > 1) solidLines.push(solidPath.slice());
-  solidPath = [];
-  setUI(false);
+  // Update cursor
+  fingerCursor.style.display = 'block';
+  fingerCursor.style.left = ix + 'px';
+  fingerCursor.style.top  = iy + 'px';
+  fingerCursor.classList.toggle('draw', isPinching);
+
+  setUI(isPinching ? 'draw' : 'hover');
+
+  if (isPinching) {
+    // Solid mode: accumulate path
+    if (!prevPinch) solidPath = [{ x: ix, y: iy }];  // start new stroke
+    else solidPath.push({ x: ix, y: iy });
+  } else {
+    // Not pinching: finish stroke if we just released
+    if (prevPinch && solidPath.length > 1) {
+      solidLines.push(solidPath.slice());
+      solidPath = [];
+    }
+    // Hover mode: spawn particles
+    if (fingerPos && prevFinger) {
+      const moved = Math.hypot(ix - prevFinger.x, iy - prevFinger.y);
+      if (moved > 2) {
+        for (let i = 0; i < 5; i++) particles.push(new Particle(ix, iy));
+        driftDots.push({ x: ix, y: iy, age: 0 });
+      }
+    }
+  }
+
+  prevPinch = isPinching;
 }
 
-function setUI(on) {
-  badge.textContent = on ? '繪製中 · 實線軌跡' : '懸停 · 粒子飄散';
-  badge.classList.toggle('on', on);
-  dot.classList.toggle('on', on);
+function setUI(mode) {
+  if (mode === 'draw') {
+    badge.textContent = '🤏 捏合中 · 繪製實線';
+    badge.classList.add('draw'); dot.classList.add('draw');
+  } else if (mode === 'hover') {
+    badge.textContent = '☝️ 食指追蹤 · 虛線粒子';
+    badge.classList.remove('draw'); dot.classList.remove('draw');
+  } else {
+    badge.textContent = '✋ 舉起手開始';
+    badge.classList.remove('draw'); dot.classList.remove('draw');
+  }
 }
 
-/* ── Particle ── */
+/* ─── Particle ─── */
 class Particle {
   constructor(x, y) {
     const a   = Math.random() * Math.PI * 2;
-    const spd = 0.4 + Math.random() * 1.4;
-    this.x    = x + (Math.random() - .5) * 8;
-    this.y    = y + (Math.random() - .5) * 8;
+    const spd = 0.5 + Math.random() * 1.5;
+    this.x    = x + (Math.random() - .5) * 10;
+    this.y    = y + (Math.random() - .5) * 10;
     this.vx   = Math.cos(a) * spd;
-    this.vy   = Math.sin(a) * spd - 0.5;
+    this.vy   = Math.sin(a) * spd - 0.6;
     this.r    = 1.5 + Math.random() * 2.5;
     this.life = 1;
-    this.decay = 0.016 + Math.random() * 0.024;
+    this.decay = 0.014 + Math.random() * 0.020;
     this.col  = Math.random() < .6 ? C.blueDk : C.brownLt;
   }
   update() {
-    this.x   += this.vx;
-    this.y   += this.vy;
-    this.vy  += 0.04;
-    this.life -= this.decay;
+    this.x   += this.vx; this.y += this.vy;
+    this.vy  += 0.04; this.life -= this.decay;
   }
   draw() {
     const r = this.r * this.life;
-    if (r <= 0.1) return;
+    if (r < 0.1) return;
     ctx.globalAlpha = Math.max(0, this.life * 0.9);
     ctx.fillStyle   = this.col;
-    ctx.beginPath();
-    ctx.arc(this.x, this.y, r, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI * 2); ctx.fill();
   }
 }
 
-/* ── draw hover dashed trail ── */
-function drawHoverTrail() {
+/* ─── draw dashed hover trail ─── */
+function drawDriftTrail() {
+  if (driftDots.length < 2) return;
   ctx.save();
-  ctx.lineWidth = 1.5;
-  ctx.lineCap   = 'round';
-  ctx.lineJoin  = 'round';
-  ctx.setLineDash([5, 7]);
-  ctx.strokeStyle = C.blueDk;
-
-  for (const seg of hoverSegs) {
-    for (let i = 1; i < seg.length; i++) {
-      const a = seg[i - 1], b = seg[i];
-      // Opacity based on the newer point's age
-      const t = 1 - b.age / FADE_FRAMES;
-      if (t <= 0) continue;
-      ctx.globalAlpha = t * 0.65;
-      ctx.beginPath();
-      ctx.moveTo(a.x, a.y);
-      ctx.lineTo(b.x, b.y);
-      ctx.stroke();
-    }
+  ctx.lineWidth = 1.5; ctx.lineCap = 'round';
+  ctx.setLineDash([5, 8]); ctx.strokeStyle = C.blueDk;
+  for (let i = 1; i < driftDots.length; i++) {
+    const a = driftDots[i-1], b = driftDots[i];
+    if (Math.hypot(b.x-a.x, b.y-a.y) > 50) continue;
+    const t = 1 - b.age / DRIFT_LIFE;
+    if (t <= 0) continue;
+    ctx.globalAlpha = t * 0.6;
+    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
   }
   ctx.restore();
 }
 
-/* ── draw solid lines ── */
-// showInProgress: whether to also draw the current live stroke
-function drawSolid(showInProgress = true) {
-  if (solidLines.length === 0 && (!showInProgress || solidPath.length < 2)) return;
-
+/* ─── draw solid strokes ─── */
+function drawSolid(live = true) {
+  if (!solidLines.length && (!live || solidPath.length < 2)) return;
   ctx.save();
-  ctx.strokeStyle = C.brown;
-  ctx.lineWidth   = 2.5;
-  ctx.lineCap     = 'round';
-  ctx.lineJoin    = 'round';
-  ctx.setLineDash([]);
-  ctx.globalAlpha = 0.9;
-
+  ctx.strokeStyle = C.brown; ctx.lineWidth = 2.8;
+  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  ctx.setLineDash([]); ctx.globalAlpha = 0.9;
   for (const line of solidLines) {
     if (line.length < 2) continue;
-    ctx.beginPath();
-    ctx.moveTo(line[0].x, line[0].y);
+    ctx.beginPath(); ctx.moveTo(line[0].x, line[0].y);
     for (let i = 1; i < line.length; i++) ctx.lineTo(line[i].x, line[i].y);
     ctx.stroke();
   }
-
-  if (showInProgress && isTouching && solidPath.length >= 2) {
+  if (live && isPinching && solidPath.length >= 2) {
     ctx.globalAlpha = 1;
-    ctx.beginPath();
-    ctx.moveTo(solidPath[0].x, solidPath[0].y);
+    ctx.beginPath(); ctx.moveTo(solidPath[0].x, solidPath[0].y);
     for (let i = 1; i < solidPath.length; i++) ctx.lineTo(solidPath[i].x, solidPath[i].y);
     ctx.stroke();
   }
-
   ctx.restore();
 }
 
-/* ── main loop ── */
+/* ─── main loop ─── */
 function loop() {
   requestAnimationFrame(loop);
-
   ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-  // Age & prune hover trail points
-  for (let s = hoverSegs.length - 1; s >= 0; s--) {
-    const seg = hoverSegs[s];
-    for (let i = seg.length - 1; i >= 0; i--) {
-      seg[i].age++;
-      if (seg[i].age > FADE_FRAMES) seg.splice(i, 1);
-    }
-    if (seg.length === 0) hoverSegs.splice(s, 1);
+  // Age & prune drift dots
+  for (let i = driftDots.length - 1; i >= 0; i--) {
+    driftDots[i].age++;
+    if (driftDots[i].age > DRIFT_LIFE) driftDots.splice(i, 1);
   }
 
-  // 1. Hover dashed trail
-  drawHoverTrail();
+  drawDriftTrail();
 
-  // 2. Particles
   ctx.save();
   for (let i = particles.length - 1; i >= 0; i--) {
     particles[i].update();
@@ -464,7 +440,6 @@ function loop() {
   }
   ctx.restore();
 
-  // 3. Solid lines (reset alpha first to avoid bleed from particles)
   ctx.globalAlpha = 1;
   drawSolid(true);
 }
