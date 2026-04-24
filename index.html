@@ -1,10 +1,9 @@
 <!DOCTYPE html>
-
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Hand Gesture Particle Symphony</title>
+    <title>Hand Gesture Particle Symphony - Pro</title>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.6.0/p5.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
     <style>
@@ -30,7 +29,7 @@
         }
         #gesture-hint {
             color: rgba(255,255,255,0.55); font-family: 'Courier New', monospace;
-            font-size: 13px; font-style: italic;
+            font-size: 13px; font-style: italic; text-align: center;
         }
         #loading-overlay {
             position: fixed; inset: 0; background: rgba(0,0,0,0.85);
@@ -46,63 +45,65 @@
     </style>
 </head>
 <body>
+
 <div id="loading-overlay">
     <div class="spinner"></div>
-    <div>模型載入中，請稍候…</div>
+    <div>核心模組載入中...</div>
 </div>
 
 <div id="ui-layer">
     <button id="switch-btn" onclick="toggleMode()">切換模式 / Switch Mode</button>
     <div id="mode-label">⊹ 心型紋樣 Rose Pattern ⊹</div>
-    <div id="gesture-hint">握拳聚合 &nbsp;|&nbsp; 張手散開</div>
+    <div id="gesture-hint">握拳聚合 | 張手散開 | 五指併攏清除筆跡<br>彈指觸發特別卡片</div>
 </div>
 
 <script>
-// ─── Global State ────────────────────────────────────────────────
-let mode = 0;           // 0 = rose / 1 = liminal
+// ─── 全域狀態 ────────────────────────────────────────────────
+let mode = 0; 
 let video;
 let particles = [];
-const NUM_PARTICLES = 900;
+const NUM_PARTICLES = 800;
 
 let handX = 0, handY = 0;
 let isFist = false;
 let isHandVisible = false;
 
+// 擴展功能變數
+let trail = [];
+let snapDetected = false;
+let prevPinchDist = 1;
+let showCard = false;
+let cardTimer = 0;
+
 let roseTargets = [];
 let liminalTargets = [];
 let targetsReady = false;
 
-// ─── Mode Labels ─────────────────────────────────────────────────
 const MODE_INFO = [
     {
         label: "⊹ 心型紋樣 Rose Pattern ⊹",
-        hint:  "握拳聚合 | 張手散開",
-        bg:    [150, 20, 50, 110],
-        glow:  [255, 150, 180],
-        core:  [255,  80, 120]
+        bg: [150, 20, 50, 110],
+        glow: [255, 150, 180],
+        core: [255, 80, 120]
     },
     {
         label: "失序邊境 .𖥔 ݁˖ The Liminal Veil .⋆",
-        hint:  " 握拳凝字 |  張手逃散",
-        bg:    [0, 8, 20, 170],
-        glow:  [0, 255, 220],
-        core:  [200, 255, 255]
+        bg: [0, 8, 20, 170],
+        glow: [0, 255, 220],
+        core: [200, 255, 255]
     }
 ];
 
-// ─── Toggle Mode ─────────────────────────────────────────────────
+// ─── 切換模式 ─────────────────────────────────────────────────
 function toggleMode() {
     mode = (mode + 1) % 2;
     document.getElementById('mode-label').innerText = MODE_INFO[mode].label;
-    document.getElementById('gesture-hint').innerText = MODE_INFO[mode].hint;
     respawnParticles();
 }
 
 // ─── p5 setup ────────────────────────────────────────────────────
 function setup() {
     createCanvas(windowWidth, windowHeight);
-    colorMode(RGB);
-
     video = createCapture(VIDEO, () => {
         initMediaPipe();
     });
@@ -110,28 +111,21 @@ function setup() {
     video.hide();
 }
 
-// ─── Generate target points ───────────────────────────────────────
 function buildTargets() {
-    roseTargets   = buildRoseTargets(NUM_PARTICLES);
+    roseTargets = buildRoseTargets(NUM_PARTICLES);
     liminalTargets = buildLiminalTargets(NUM_PARTICLES);
     targetsReady = true;
     respawnParticles();
 }
 
-// Mode 0 – multi-petal rose using polar rose curve + heart overlay
 function buildRoseTargets(n) {
     let pts = [];
     const cx = width / 2, cy = height / 2;
-
-    // Rose curve (rhodonea) petals
     for (let i = 0; i < n * 0.6; i++) {
         let t = map(i, 0, n * 0.6, 0, TWO_PI * 3);
-        let r = 130 * cos(3 * t);           // 3-petal rose
-        let x = cx + r * cos(t);
-        let y = cy + r * sin(t);
-        pts.push({ x, y });
+        let r = 130 * cos(3 * t);
+        pts.push({ x: cx + r * cos(t), y: cy + r * sin(t) });
     }
-    // Heart shape fill
     for (let i = 0; i < n * 0.4; i++) {
         let t = map(i, 0, n * 0.4, 0, TWO_PI);
         let sc = 10;
@@ -142,57 +136,25 @@ function buildRoseTargets(n) {
     return shuffleArr(pts);
 }
 
-// Mode 1 – Large pixel-dot text like reference image (HAPPY NEW YEAR style)
 function buildLiminalTargets(n) {
     let pts = [];
-
     const og = document.createElement('canvas');
     og.width = width; og.height = height;
     const octx = og.getContext('2d');
-    octx.fillStyle = '#000';
-    octx.fillRect(0, 0, width, height);
     octx.fillStyle = '#fff';
+    octx.font = `bold ${Math.floor(width / 5)}px "Courier New"`;
+    octx.fillText("Bairan", (width - octx.measureText("Bairan").width) / 2, height * 0.45);
+    octx.font = `bold ${Math.floor(width / 10)}px "Courier New"`;
+    octx.fillText("LIN", (width - octx.measureText("LIN").width) / 2, height * 0.65);
 
-    // Line 1: "失序邊境" — large, fills width
-    const line1 = "失序邊境";
-    const size1 = Math.floor(width / 4.2);
-    octx.font = `bold ${size1}px "Courier New", monospace`;
-    const w1 = octx.measureText(line1).width;
-    octx.fillText(line1, (width - w1) / 2, height * 0.28);
-
-    // Line 2: "The Liminal Veil" — medium
-    const line2 = "The Liminal Veil";
-    const size2 = Math.floor(width / 8);
-    octx.font = `bold ${size2}px "Courier New", monospace`;
-    const w2 = octx.measureText(line2).width;
-    octx.fillText(line2, (width - w2) / 2, height * 0.52);
-
-    // Line 3: ".𖥔 ˖ .⋆" — small decorative
-    const line3 = ".* \u2606 .+ \u2022 .*";
-    const size3 = Math.floor(width / 14);
-    octx.font = `${size3}px "Courier New", monospace`;
-    const w3 = octx.measureText(line3).width;
-    octx.fillText(line3, (width - w3) / 2, height * 0.66);
-
-    // Sample pixels at tight grid for dense dots
-    const imgData = octx.getImageData(0, 0, width, height);
-    const pix = imgData.data;
-    const step = 5; // tighter = more particles
-    for (let x = 0; x < width; x += step) {
-        for (let y = 0; y < height; y += step) {
-            const idx = (x + y * width) * 4;
-            if (pix[idx] > 128) {
-                pts.push({ x, y });
-            }
+    const imgData = octx.getImageData(0, 0, width, height).data;
+    for (let x = 0; x < width; x += 6) {
+        for (let y = 0; y < height; y += 6) {
+            if (imgData[(x + y * width) * 4] > 128) pts.push({ x, y });
         }
     }
-
-    // Shuffle then ensure exactly n points
-    pts = shuffleArr(pts);
-    while (pts.length < n) {
-        pts = pts.concat(shuffleArr(pts.slice()).slice(0, n - pts.length));
-    }
-    return pts.slice(0, n);
+    while (pts.length < n) pts.push({ x: random(width), y: random(height) });
+    return shuffleArr(pts).slice(0, n);
 }
 
 function shuffleArr(arr) {
@@ -203,7 +165,6 @@ function shuffleArr(arr) {
     return arr;
 }
 
-// ─── Spawn / respawn particles ────────────────────────────────────
 function respawnParticles() {
     if (!targetsReady) return;
     particles = [];
@@ -212,74 +173,81 @@ function respawnParticles() {
     }
 }
 
-// ─── MediaPipe ────────────────────────────────────────────────────
+// ─── MediaPipe 核心 ──────────────────────────────────────────────
 function initMediaPipe() {
     const handsModel = new Hands({
         locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
     });
-    handsModel.setOptions({
-        maxNumHands: 1,
-        modelComplexity: 0,
-        minDetectionConfidence: 0.5,
-        minTrackingConfidence: 0.5
-    });
+    handsModel.setOptions({ maxNumHands: 1, modelComplexity: 0, minDetectionConfidence: 0.5, minTrackingConfidence: 0.5 });
 
     handsModel.onResults(results => {
         document.getElementById('loading-overlay').style.display = 'none';
-        if (!targetsReady) buildTargets();   // build once canvas size is known
+        if (!targetsReady) buildTargets();
 
         if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
             isHandVisible = true;
             const lm = results.multiHandLandmarks[0];
-            const wrist = lm[0];
-            // Mirror X for selfie view
-            handX = (1 - wrist.x) * width;
-            handY = wrist.y * height;
+            handX = (1 - lm[0].x) * width;
+            handY = lm[0].y * height;
 
-            // Fist detection: check all 4 finger tips vs their MCP joints
-            // Finger tips: 8, 12, 16, 20 | MCP: 5, 9, 13, 17
-            const tips  = [8, 12, 16, 20];
-            const mcps  = [5,  9, 13, 17];
-            let foldCount = 0;
-            for (let i = 0; i < 4; i++) {
-                if (lm[tips[i]].y > lm[mcps[i]].y) foldCount++;
-            }
-            isFist = foldCount >= 3;
+            // 握拳判斷
+            let fold = 0;
+            const tips = [8, 12, 16, 20], mcps = [5, 9, 13, 17];
+            for (let i = 0; i < 4; i++) if (lm[tips[i]].y > lm[mcps[i]].y) fold++;
+            isFist = fold >= 3;
+
+            // 彈指判斷 (Thumb 4 & Index 8)
+            let d = dist(lm[4].x, lm[4].y, lm[8].x, lm[8].y);
+            if (prevPinchDist < 0.04 && d > 0.1) snapDetected = true;
+            prevPinchDist = d;
+
+            // 五指併攏清除
+            let spread = dist(lm[8].x, lm[8].y, lm[12].x, lm[12].y) + dist(lm[16].x, lm[16].y, lm[20].x, lm[20].y);
+            if (spread < 0.05) trail = [];
         } else {
             isHandVisible = false;
-            isFist = false;
         }
     });
 
     async function loop() {
-        if (video.elt.readyState >= 2) {
-            await handsModel.send({ image: video.elt });
-        }
+        if (video.elt.readyState >= 2) await handsModel.send({ image: video.elt });
         requestAnimationFrame(loop);
     }
     loop();
 }
 
-// ─── p5 draw ─────────────────────────────────────────────────────
+// ─── 繪製循環 ────────────────────────────────────────────────────
 function draw() {
     background(0);
 
-    // Camera feed with tinted overlay
-    if (video && video.elt.readyState >= 2) {
-        push();
-        translate(width, 0); scale(-1, 1);
-        tint(255, 200);
-        image(video, 0, 0, width, height);
-        noTint();
-        const bg = MODE_INFO[mode].bg;
-        fill(bg[0], bg[1], bg[2], bg[3]);
-        noStroke();
-        rect(0, 0, width, height);
-        pop();
+    // 背景相機
+    push();
+    translate(width, 0); scale(-1, 1);
+    tint(255, 180);
+    image(video, 0, 0, width, height);
+    fill(MODE_INFO[mode].bg[0], MODE_INFO[mode].bg[1], MODE_INFO[mode].bg[2], MODE_INFO[mode].bg[3]);
+    rect(0, 0, width, height);
+    pop();
+
+    // 處理筆跡
+    if (isHandVisible && !isFist && !showCard) {
+        trail.push({ x: handX, y: handY });
+        if (trail.length > 300) trail.shift();
+    }
+    noStroke();
+    fill(0, 255, 200, 150);
+    for (let p of trail) ellipse(p.x, p.y, 4, 4);
+
+    // 處理彈指
+    if (snapDetected) {
+        showCard = true;
+        cardTimer = 180;
+        snapDetected = false;
     }
 
-    // Particles
-    if (targetsReady) {
+    if (showCard) {
+        drawVIPCard();
+    } else if (targetsReady) {
         const targets = mode === 0 ? roseTargets : liminalTargets;
         for (let i = 0; i < particles.length; i++) {
             particles[i].update(targets[i], isFist, handX, handY);
@@ -287,111 +255,62 @@ function draw() {
         }
     }
 
-    // Gesture indicator
+    // 手勢提示
     if (isHandVisible) {
-        const col = isFist ? color(255, 80, 80, 160) : color(0, 255, 200, 140);
-        noFill(); stroke(col); strokeWeight(2);
-        ellipse(handX, handY, isFist ? 60 : 90, isFist ? 60 : 90);
-        noStroke();
+        noFill(); stroke(isFist ? 'red' : '#0ff');
+        ellipse(handX, handY, isFist ? 40 : 70);
     }
 }
 
-// ─── Particle Class ───────────────────────────────────────────────
+function drawVIPCard() {
+    push();
+    translate(width/2, height/2);
+    rotate(sin(frameCount * 0.05) * 0.05);
+    fill(20, 20, 30, 230); stroke(0, 255, 200); strokeWeight(3);
+    rectMode(CENTER); rect(0, 0, 300, 160, 20);
+    noStroke(); fill(0, 255, 200); textAlign(CENTER, CENTER);
+    textSize(30); text("V I P", 0, -30);
+    textSize(16); fill(255); text("Bairan Lin", 0, 10);
+    textSize(10); fill(0, 255, 200, 150); text("SPECIAL ACCESS GRANTED", 0, 45);
+    pop();
+    if (--cardTimer <= 0) showCard = false;
+}
+
+// ─── 粒子類別 ───────────────────────────────────────────────
 class Particle {
     constructor(x, y, idx) {
         this.pos = createVector(x, y);
         this.vel = createVector(random(-2, 2), random(-2, 2));
         this.acc = createVector(0, 0);
         this.idx = idx;
-        // Each particle has its own leisurely wander destination
-        this.wanderTarget = createVector(random(width), random(height));
-        this.wanderTimer = floor(random(60, 180));
     }
-
     update(target, fist, hx, hy) {
         this.acc.set(0, 0);
-
         if (fist) {
-            // ── SEEK target with arrival easing ──────────────────
-            const desired = p5.Vector.sub(createVector(target.x, target.y), this.pos);
-            const d = desired.mag();
-            const speed = d < 60 ? map(d, 0, 60, 0.5, 10) : 10;
-            desired.setMag(speed);
-            const steer = p5.Vector.sub(desired, this.vel);
-            steer.limit(0.9);
-            this.acc.add(steer);
-        }
-         else {
-            // ── WANDER + FLEE hand ────────────────────────────────
-            // Flee from hand
-            // ── 跟其他粒子保持距離（簡化 Boids）──
-            for (let other of particles) {
-                if (other === this) continue;
-
-                let d = dist(this.pos.x, this.pos.y, other.pos.x, other.pos.y);
-    
-                if (d < 20) {
-        let push = p5.Vector.sub(this.pos, other.pos);
-        push.setMag(0.5); // 推開強度
-        this.acc.add(push);
-    }
-}
+            let steer = p5.Vector.sub(createVector(target.x, target.y), this.pos);
+            let d = steer.mag();
+            steer.setMag(d < 50 ? map(d, 0, 50, 0, 8) : 8);
+            this.acc.add(p5.Vector.sub(steer, this.vel).limit(0.8));
+        } else {
             if (isHandVisible) {
-                const toHand = p5.Vector.sub(this.pos, createVector(hx, hy));
-                const d = toHand.mag();
-                if (d < 180) {
-                    toHand.setMag(map(d, 0, 180, 12, 0));
-                    this.acc.add(toHand);
-                }
+                let flee = p5.Vector.sub(this.pos, createVector(hx, hy));
+                if (flee.mag() < 150) this.acc.add(flee.setMag(5));
             }
-            // Wander towards random point
-            this.wanderTimer--;
-            if (this.wanderTimer <= 0) {
-                this.wanderTarget.set(random(width), random(height));
-                this.wanderTimer = floor(random(80, 200));
-            }
-            const desired = p5.Vector.sub(this.wanderTarget, this.pos);
-            desired.setMag(2);
-            const steer = p5.Vector.sub(desired, this.vel);
-            steer.limit(0.15);
-            this.acc.add(steer);
+            this.acc.add(p5.Vector.random2D().mult(0.5));
         }
-
-        this.vel.add(this.acc);
-        this.vel.limit(fist ? 12 : 7);
+        this.vel.add(this.acc).limit(fist ? 10 : 4);
         this.pos.add(this.vel);
-
-        // Wrap edges
-        if (this.pos.x < -5)      this.pos.x = width + 5;
-        if (this.pos.x > width+5) this.pos.x = -5;
-        if (this.pos.y < -5)      this.pos.y = height + 5;
-        if (this.pos.y > height+5) this.pos.y = -5;
     }
-
     draw() {
         const info = MODE_INFO[mode];
-        const speed = this.vel.mag();
-        const alpha = map(speed, 0, 12, 160, 255);
-
-        // Glow
-        noStroke();
-        fill(info.glow[0], info.glow[1], info.glow[2], 60);
-        ellipse(this.pos.x, this.pos.y, 7, 7);
-
-        // Core
-        fill(info.core[0], info.core[1], info.core[2], alpha);
-        ellipse(this.pos.x, this.pos.y, 2.5, 2.5);
+        fill(info.glow[0], info.glow[1], info.glow[2], 50);
+        ellipse(this.pos.x, this.pos.y, 8);
+        fill(info.core[0], info.core[1], info.core[2]);
+        ellipse(this.pos.x, this.pos.y, 3);
     }
 }
 
-function windowResized() {
-    resizeCanvas(windowWidth, windowHeight);
-    // Rebuild targets for new canvas size
-    if (targetsReady) {
-        buildTargets();
-    }
-}
+function windowResized() { resizeCanvas(windowWidth, windowHeight); if (targetsReady) buildTargets(); }
 </script>
-
 </body>
 </html>
