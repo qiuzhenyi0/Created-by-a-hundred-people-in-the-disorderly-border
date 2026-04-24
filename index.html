@@ -4,17 +4,18 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
 <title>粒子軌跡 · MediaPipe</title>
-<!-- MediaPipe Hands -->
+
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
 <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 :root {
-  --brown:    #5c3a3a;
-  --brown-lt: #7a5050;
-  --blue:     #a8c8d0;
-  --blue-dk:  #7aabb5;
-  --cream:    #e8dfd0;
+  --brown:#5c3a3a;
+  --brown-lt:#7a5050;
+  --blue:#a8c8d0;
+  --blue-dk:#7aabb5;
+  --cream:#e8dfd0;
 }
 body {
   background: var(--cream);
@@ -23,12 +24,10 @@ body {
   width: 100vw; height: 100vh;
 }
 
-/* mirrored camera feed */
 #camera-bg {
   position: fixed; inset: 0;
   width: 100%; height: 100%;
   object-fit: cover;
-  z-index: 0;
   transform: scaleX(-1);
   display: none;
 }
@@ -36,413 +35,238 @@ body {
 #canvas {
   position: fixed; inset: 0;
   z-index: 10;
-  /* canvas is drawn in mirrored space too */
 }
 
-/* ── UI ── */
-#ui {
-  position: fixed; inset: 0;
-  z-index: 20; pointer-events: none;
-}
-#status-badge {
-  position: absolute; top: 28px; left: 50%;
-  transform: translateX(-50%);
-  background: var(--brown); color: var(--cream);
-  font-size: 11px; letter-spacing: .18em; text-transform: uppercase;
-  padding: 7px 20px; border-radius: 20px;
-  border: 1.5px solid var(--brown-lt); white-space: nowrap;
-  transition: background .3s, color .3s, border-color .3s;
-}
-#status-badge.draw {
-  background: var(--blue-dk); border-color: var(--blue); color: var(--brown);
-}
-#mode-dot {
-  position: absolute; top: 32px; left: 32px;
-  width: 10px; height: 10px; border-radius: 50%;
-  background: var(--blue); box-shadow: 0 0 12px var(--blue);
-  animation: pulse 2s ease-in-out infinite;
-}
-#mode-dot.draw {
-  background: var(--brown); box-shadow: 0 0 12px var(--brown-lt); animation: none;
-}
-@keyframes pulse {
-  0%,100%{ opacity:1; transform:scale(1); }
-  50%    { opacity:.5; transform:scale(.7); }
-}
-#clear-btn {
-  display: none; position: fixed; bottom: 36px; right: 28px; z-index: 20;
-  background: var(--brown); color: var(--cream); border: none; border-radius: 50px;
-  padding: 11px 24px; font: 11px/1 Georgia,serif; letter-spacing:.15em;
-  text-transform: uppercase; cursor: pointer;
-  box-shadow: 0 4px 16px rgba(92,58,58,.25);
-  transition: background .2s, transform .2s;
-}
-#clear-btn:hover { background: var(--brown-lt); transform: translateY(-2px); }
-
-/* ── finger cursor ── */
 #finger-cursor {
-  position: fixed; z-index: 25; pointer-events: none;
+  position: fixed;
   width: 18px; height: 18px;
   border-radius: 50%;
   border: 2px solid var(--blue-dk);
   background: rgba(122,171,181,.25);
   transform: translate(-50%, -50%);
-  transition: width .1s, height .1s, background .1s, border-color .1s;
-  display: none;
+  pointer-events:none;
+  display:none;
 }
+
 #finger-cursor.draw {
-  width: 14px; height: 14px;
   border-color: var(--brown-lt);
   background: rgba(92,58,58,.3);
 }
-
-/* ── legend ── */
-#legend {
-  display: none; position: fixed; bottom: 36px; left: 28px;
-  z-index: 20; pointer-events: none;
-  flex-direction: column; gap: 8px;
-}
-.leg { display:flex; align-items:center; gap:10px;
-  font: 10px/1 Georgia,serif; letter-spacing:.12em;
-  text-transform: uppercase; color: var(--brown); }
-.leg-line { width: 28px; height: 2px; }
-.leg-dash { background: repeating-linear-gradient(90deg, var(--blue-dk) 0 4px, transparent 4px 8px); }
-.leg-solid { background: var(--brown); }
-
-/* ── start screen ── */
-#start-screen {
-  position: fixed; inset: 0; z-index: 30; background: var(--cream);
-  display: flex; flex-direction: column; align-items: center; justify-content: center;
-  transition: opacity .8s;
-}
-#start-screen.hidden { opacity:0; pointer-events:none; }
-.s-top {
-  background: var(--brown); border-radius: 24px 24px 0 0;
-  padding: 48px 44px 36px; text-align: center; width: min(360px, 88vw);
-}
-.s-label { font-size:11px; letter-spacing:.22em; color:var(--blue); text-transform:uppercase; margin-bottom:16px; }
-.s-title { color:var(--cream); font-size:clamp(26px,7vw,38px); line-height:1.2; font-weight:normal; margin-bottom:8px; }
-.s-sub   { color:var(--blue); font-size:13px; opacity:.85; }
-.s-bot {
-  background: var(--blue); border-radius: 0 0 24px 24px;
-  padding: 32px 44px 44px; width: min(360px, 88vw);
-  display: flex; flex-direction: column; align-items: center; gap: 20px;
-}
-.s-desc { color:var(--brown); font-size:13px; line-height:1.8; text-align:center; }
-#start-btn {
-  pointer-events: all; cursor: pointer;
-  background: var(--brown); color: var(--cream); border: none; border-radius: 50px;
-  padding: 14px 44px; font: 13px/1 Georgia,serif; letter-spacing:.2em;
-  text-transform: uppercase; box-shadow: 0 4px 20px rgba(92,58,58,.3);
-  transition: background .2s, transform .2s;
-}
-#start-btn:hover { background: var(--brown-lt); transform: translateY(-2px); }
-
-/* ── loading overlay ── */
-#loading {
-  display: none; position: fixed; inset: 0; z-index: 28;
-  background: var(--cream); flex-direction: column;
-  align-items: center; justify-content: center; gap: 16px;
-}
-#loading.show { display: flex; }
-.spinner {
-  width: 36px; height: 36px; border-radius: 50%;
-  border: 3px solid var(--blue-dk);
-  border-top-color: transparent;
-  animation: spin 0.8s linear infinite;
-}
-@keyframes spin { to { transform: rotate(360deg); } }
-.loading-text { color: var(--brown); font-size: 13px; letter-spacing: .1em; }
 </style>
 </head>
+
 <body>
 
 <video id="camera-bg" autoplay playsinline muted></video>
 <canvas id="canvas"></canvas>
 <div id="finger-cursor"></div>
 
-<div id="ui">
-  <div id="mode-dot"></div>
-  <div id="status-badge"> 舉起手開始</div>
-</div>
-
-<button id="clear-btn">清除 Clear</button>
-
-<div id="legend">
-  <div class="leg"><div class="leg-line leg-dash"></div><span>食指懸停虛線</span></div>
-  <div class="leg"><div class="leg-line leg-solid"></div><span>捏合繪製實線</span></div>
-</div>
-
-<div id="loading">
-  <div class="spinner"></div>
-  <div class="loading-text">載入手部偵測模型…</div>
-</div>
-
-<div id="start-screen">
-  <div class="s-top">
-    <div class="s-label">Coloring · 2026</div>
-    <div class="s-title">粒子軌跡<br>繪製器</div>
-    <div class="s-sub">MediaPipe Hands</div>
-  </div>
-  <div class="s-bot">
-    <div class="s-desc">
-       食指移動<br>密集粒子留下<em>虛線</em>軌跡<br><br>
-       拇指＋食指捏合<br>留下<em>實線</em>軌跡
-    </div>
-    <button id="start-btn">開啟鏡頭 ↗</button>
-  </div>
-</div>
-
 <script>
-/* ─── colours ─── */
-const C = { brown:'#5c3a3a', brownLt:'#8a6060', blueDk:'#7aabb5' };
-
-/* ─── canvas ─── */
 const canvas = document.getElementById('canvas');
-const ctx    = canvas.getContext('2d');
-function setSize() { canvas.width = innerWidth; canvas.height = innerHeight; }
-setSize();
-window.addEventListener('resize', () => { setSize(); drawSolid(false); });
+const ctx = canvas.getContext('2d');
+const cursor = document.getElementById('finger-cursor');
 
-/* ─── DOM ─── */
-const startScreen  = document.getElementById('start-screen');
-const startBtn     = document.getElementById('start-btn');
-const clearBtn     = document.getElementById('clear-btn');
-const legendEl     = document.getElementById('legend');
-const badge        = document.getElementById('status-badge');
-const dot          = document.getElementById('mode-dot');
-const cameraBg     = document.getElementById('camera-bg');
-const fingerCursor = document.getElementById('finger-cursor');
-const loadingEl    = document.getElementById('loading');
+function resize(){
+  canvas.width = innerWidth;
+  canvas.height = innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
 
-/* ─── state ─── */
-let isPinching  = false;
-let prevPinch   = false;
-let fingerPos   = null;   // {x, y} in screen coords (mirrored)
-let prevFinger  = null;
+/* ───── state ───── */
+let fingerPos=null, prevFinger=null;
+let isPinching=false, prevPinch=false;
 
-const particles  = [];
-const driftDots  = [];   // {x, y, age}
-const DRIFT_LIFE = 100;
+const particles=[];
+const driftDots=[];
+const solidLines=[];
+let solidPath=[];
 
-const solidLines = [];
-let   solidPath  = [];
+/* 5 秒粒子 */
+class Particle {
+  constructor(x,y){
+    const a=Math.random()*Math.PI*2;
+    const spd=0.5+Math.random()*1.8;
 
-const PINCH_THRESHOLD = 0.07;  // normalised distance between thumb tip & index tip
+    this.x=x+(Math.random()-0.5)*12;
+    this.y=y+(Math.random()-0.5)*12;
 
-/* ─── start ─── */
-startBtn.addEventListener('click', async () => {
-  startScreen.classList.add('hidden');
-  loadingEl.classList.add('show');
-  setTimeout(() => { startScreen.style.display = 'none'; }, 900);
-  await initMediaPipe();
-});
+    this.vx=Math.cos(a)*spd;
+    this.vy=Math.sin(a)*spd-0.5;
 
-clearBtn.addEventListener('click', () => {
-  particles.length = driftDots.length = solidLines.length = solidPath.length = 0;
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
-});
+    this.r=2.5+Math.random()*3.5;
 
-/* ─── MediaPipe init ─── */
-async function initMediaPipe() {
-  const hands = new Hands({
-    locateFile: f => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
+    this.life=1;
+    this.decay=0.0033; // ≈5秒
+
+    this.col=Math.random()<0.6 ? "#7aabb5" : "#8a6060";
+  }
+
+  update(){
+    this.x+=this.vx;
+    this.y+=this.vy;
+    this.vy+=0.03;
+    this.life-=this.decay;
+  }
+
+  draw(){
+    const r=this.r*this.life;
+    if(r<=0) return;
+
+    ctx.globalAlpha=Math.max(0,this.life*1.1);
+    ctx.fillStyle=this.col;
+
+    ctx.beginPath();
+    ctx.arc(this.x,this.y,r,0,Math.PI*2);
+    ctx.fill();
+  }
+}
+
+/* hover 虛線（棕色） */
+function drawDrift(){
+  if(driftDots.length<2) return;
+
+  ctx.save();
+  ctx.strokeStyle="#5c3a3a"; // 棕色
+  ctx.lineWidth=1.5;
+  ctx.setLineDash([5,8]);
+
+  for(let i=1;i<driftDots.length;i++){
+    const a=driftDots[i-1], b=driftDots[i];
+    ctx.globalAlpha=0.6;
+    ctx.beginPath();
+    ctx.moveTo(a.x,a.y);
+    ctx.lineTo(b.x,b.y);
+    ctx.stroke();
+  }
+  ctx.restore();
+}
+
+/* 實線（藍色） */
+function drawSolid(live=true){
+  ctx.save();
+  ctx.strokeStyle="#7aabb5"; // 藍色
+  ctx.lineWidth=2.8;
+  ctx.lineCap="round";
+
+  for(const line of solidLines){
+    ctx.beginPath();
+    ctx.moveTo(line[0].x,line[0].y);
+    for(let i=1;i<line.length;i++){
+      ctx.lineTo(line[i].x,line[i].y);
+    }
+    ctx.stroke();
+  }
+
+  if(live && isPinching && solidPath.length>1){
+    ctx.beginPath();
+    ctx.moveTo(solidPath[0].x,solidPath[0].y);
+    for(let i=1;i<solidPath.length;i++){
+      ctx.lineTo(solidPath[i].x,solidPath[i].y);
+    }
+    ctx.stroke();
+  }
+
+  ctx.restore();
+}
+
+/* MediaPipe */
+async function init(){
+  const hands=new Hands({
+    locateFile:f=>`https://cdn.jsdelivr.net/npm/@mediapipe/hands/${f}`
   });
+
   hands.setOptions({
-    maxNumHands: 1,
-    modelComplexity: 1,
-    minDetectionConfidence: 0.7,
-    minTrackingConfidence: 0.6
+    maxNumHands:1,
+    minDetectionConfidence:0.7,
+    minTrackingConfidence:0.6
   });
+
   hands.onResults(onResults);
 
-  // Get camera stream (front camera)
-  let stream;
-  try {
-    stream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } },
-      audio: false
-    });
-  } catch(e) {
-    loadingEl.querySelector('.loading-text').textContent = '無法存取鏡頭';
-    return;
-  }
-
-  cameraBg.srcObject = stream;
-  cameraBg.style.display = 'block';
-
-  // Use MediaPipe Camera utility to pump frames into Hands
-  const camera = new Camera(cameraBg, {
-    onFrame: async () => { await hands.send({ image: cameraBg }); },
-    width: 640, height: 480
+  const stream=await navigator.mediaDevices.getUserMedia({
+    video:{facingMode:"user"}
   });
-  await camera.start();
 
-  loadingEl.classList.remove('show');
-  clearBtn.style.display = 'block';
-  legendEl.style.display = 'flex';
-  requestAnimationFrame(loop);
+  const video=document.getElementById("camera-bg");
+  video.srcObject=stream;
+  video.style.display="block";
+
+  const camera=new Camera(video,{
+    onFrame:async()=>hands.send({image:video}),
+    width:640,height:480
+  });
+
+  await camera.start();
+  loop();
 }
 
-/* ─── MediaPipe results ─── */
-function onResults(results) {
-  if (!results.multiHandLandmarks || results.multiHandLandmarks.length === 0) {
-    fingerPos  = null;
-    isPinching = false;
-    setUI('idle');
-    fingerCursor.style.display = 'none';
+/* 手勢 */
+function onResults(results){
+  if(!results.multiHandLandmarks?.length){
+    fingerPos=null;
+    isPinching=false;
+    cursor.style.display="none";
     return;
   }
 
-  const lm = results.multiHandLandmarks[0];
-  // Landmark indices: 4 = thumb tip, 8 = index tip
-  const thumb = lm[4], index = lm[8];
+  const lm=results.multiHandLandmarks[0];
+  const index=lm[8], thumb=lm[4];
 
-  // Mirror X because video is CSS-mirrored (scaleX(-1))
-  const ix = (1 - index.x) * innerWidth;
-  const iy = index.y * innerHeight;
+  const ix=(1-index.x)*innerWidth;
+  const iy=index.y*innerHeight;
 
-  // Pinch = distance between thumb tip and index tip in normalised space
-  const dist = Math.hypot(thumb.x - index.x, thumb.y - index.y);
-  isPinching = dist < PINCH_THRESHOLD;
+  const dist=Math.hypot(thumb.x-index.x,thumb.y-index.y);
+  isPinching=dist<0.07;
 
-  prevFinger = fingerPos ? { ...fingerPos } : null;
-  fingerPos  = { x: ix, y: iy };
+  prevFinger=fingerPos?{...fingerPos}:null;
+  fingerPos={x:ix,y:iy};
 
-  // Update cursor
-  fingerCursor.style.display = 'block';
-  fingerCursor.style.left = ix + 'px';
-  fingerCursor.style.top  = iy + 'px';
-  fingerCursor.classList.toggle('draw', isPinching);
+  cursor.style.display="block";
+  cursor.style.left=ix+"px";
+  cursor.style.top=iy+"px";
+  cursor.classList.toggle("draw",isPinching);
 
-  setUI(isPinching ? 'draw' : 'hover');
-
-  if (isPinching) {
-    // Solid mode: accumulate path
-    if (!prevPinch) solidPath = [{ x: ix, y: iy }];  // start new stroke
-    else solidPath.push({ x: ix, y: iy });
-  } else {
-    // Not pinching: finish stroke if we just released
-    if (prevPinch && solidPath.length > 1) {
-      solidLines.push(solidPath.slice());
-      solidPath = [];
+  if(isPinching){
+    if(!prevPinch) solidPath=[{x:ix,y:iy}];
+    else solidPath.push({x:ix,y:iy});
+  }else{
+    if(prevPinch && solidPath.length>1){
+      solidLines.push([...solidPath]);
+      solidPath=[];
     }
-    // Hover mode: spawn particles
-    if (fingerPos && prevFinger) {
-      const moved = Math.hypot(ix - prevFinger.x, iy - prevFinger.y);
-      if (moved > 2) {
-        for (let i = 0; i < 5; i++) particles.push(new Particle(ix, iy));
-        driftDots.push({ x: ix, y: iy, age: 0 });
-      }
+
+    if(prevFinger){
+      particles.push(...Array(8).fill().map(()=>new Particle(ix,iy)));
+
+      driftDots.push({x:ix,y:iy,age:0});
     }
   }
 
-  prevPinch = isPinching;
+  prevPinch=isPinching;
 }
 
-function setUI(mode) {
-  if (mode === 'draw') {
-    badge.textContent = ' 捏合中 · 繪製實線';
-    badge.classList.add('draw'); dot.classList.add('draw');
-  } else if (mode === 'hover') {
-    badge.textContent = ' 食指追蹤 · 虛線粒子';
-    badge.classList.remove('draw'); dot.classList.remove('draw');
-  } else {
-    badge.textContent = ' 舉起手開始';
-    badge.classList.remove('draw'); dot.classList.remove('draw');
-  }
-}
-
-/* ─── Particle ─── */
-class Particle {
-  constructor(x, y) {
-    const a   = Math.random() * Math.PI * 2;
-    const spd = 0.5 + Math.random() * 1.5;
-    this.x    = x + (Math.random() - .5) * 10;
-    this.y    = y + (Math.random() - .5) * 10;
-    this.vx   = Math.cos(a) * spd;
-    this.vy   = Math.sin(a) * spd - 0.6;
-    this.r    = 1.5 + Math.random() * 2.5;
-    this.life = 1;
-    this.decay = 0.014 + Math.random() * 0.020;
-    this.col  = Math.random() < .6 ? C.blueDk : C.brownLt;
-  }
-  update() {
-    this.x   += this.vx; this.y += this.vy;
-    this.vy  += 0.04; this.life -= this.decay;
-  }
-  draw() {
-    const r = this.r * this.life;
-    if (r < 0.1) return;
-    ctx.globalAlpha = Math.max(0, this.life * 0.9);
-    ctx.fillStyle   = this.col;
-    ctx.beginPath(); ctx.arc(this.x, this.y, r, 0, Math.PI * 2); ctx.fill();
-  }
-}
-
-/* ─── draw dashed hover trail ─── */
-function drawDriftTrail() {
-  if (driftDots.length < 2) return;
-  ctx.save();
-  ctx.lineWidth = 1.5; ctx.lineCap = 'round';
-  ctx.setLineDash([5, 8]); ctx.strokeStyle = C.blueDk;
-  for (let i = 1; i < driftDots.length; i++) {
-    const a = driftDots[i-1], b = driftDots[i];
-    if (Math.hypot(b.x-a.x, b.y-a.y) > 50) continue;
-    const t = 1 - b.age / DRIFT_LIFE;
-    if (t <= 0) continue;
-    ctx.globalAlpha = t * 0.6;
-    ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-  }
-  ctx.restore();
-}
-
-/* ─── draw solid strokes ─── */
-function drawSolid(live = true) {
-  if (!solidLines.length && (!live || solidPath.length < 2)) return;
-  ctx.save();
-  ctx.strokeStyle = C.brown; ctx.lineWidth = 2.8;
-  ctx.lineCap = 'round'; ctx.lineJoin = 'round';
-  ctx.setLineDash([]); ctx.globalAlpha = 0.9;
-  for (const line of solidLines) {
-    if (line.length < 2) continue;
-    ctx.beginPath(); ctx.moveTo(line[0].x, line[0].y);
-    for (let i = 1; i < line.length; i++) ctx.lineTo(line[i].x, line[i].y);
-    ctx.stroke();
-  }
-  if (live && isPinching && solidPath.length >= 2) {
-    ctx.globalAlpha = 1;
-    ctx.beginPath(); ctx.moveTo(solidPath[0].x, solidPath[0].y);
-    for (let i = 1; i < solidPath.length; i++) ctx.lineTo(solidPath[i].x, solidPath[i].y);
-    ctx.stroke();
-  }
-  ctx.restore();
-}
-
-/* ─── main loop ─── */
-function loop() {
+/* loop */
+function loop(){
   requestAnimationFrame(loop);
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
 
-  // Age & prune drift dots
-  for (let i = driftDots.length - 1; i >= 0; i--) {
-    driftDots[i].age++;
-    if (driftDots[i].age > DRIFT_LIFE) driftDots.splice(i, 1);
-  }
+  drawDrift();
 
-  drawDriftTrail();
-
-  ctx.save();
-  for (let i = particles.length - 1; i >= 0; i--) {
+  for(let i=particles.length-1;i>=0;i--){
     particles[i].update();
-    if (particles[i].life <= 0) { particles.splice(i, 1); continue; }
+    if(particles[i].life<=0){
+      particles.splice(i,1);
+      continue;
+    }
     particles[i].draw();
   }
-  ctx.restore();
 
-  ctx.globalAlpha = 1;
   drawSolid(true);
 }
+
+init();
 </script>
+
 </body>
 </html>
